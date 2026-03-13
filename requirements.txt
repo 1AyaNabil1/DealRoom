@@ -6,4 +6,5 @@ pyaudio==0.2.14
 websockets==13.0
 pyautogui>=0.9.54
 google-cloud-texttospeech>=2.16.0
+google-cloud-aiplatform>=1.67.1
 gTTS>=2.5.1
