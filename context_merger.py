@@ -9,19 +9,21 @@ from negotiation_state import NegotiationState, state_to_prompt_context
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("context_merger")
 
-def build_audio_part(audio_bytes: bytes) -> dict:
+def build_audio_part(audio_bytes: bytes) -> types.LiveClientRealtimeInput:
     """
-    Returns the audio part dictionary for Gemini Live API.
+    Returns the audio LiveClientRealtimeInput for Gemini Live API.
     """
-    return {"data": audio_bytes, "mime_type": "audio/pcm"}
+    audio_blob = types.Blob(mime_type="audio/pcm", data=audio_bytes)
+    return types.LiveClientRealtimeInput(audio=audio_blob)
 
-def build_vision_part(base64_frame: str | None) -> dict | None:
+def build_vision_part(base64_frame: str | None) -> types.LiveClientRealtimeInput | None:
     """
-    Returns the vision part dictionary if a frame is provided.
+    Returns the vision LiveClientRealtimeInput if a frame is provided.
     """
     if not base64_frame:
         return None
-    return {"data": base64_frame, "mime_type": "image/jpeg"}
+    vision_blob = types.Blob(mime_type="image/jpeg", data=base64_frame)
+    return types.LiveClientRealtimeInput(video=vision_blob)
 
 def build_context_message(state: NegotiationState) -> str:
     """
@@ -55,16 +57,21 @@ async def merge_and_send(session, audio_bytes: bytes, frame_base64: str | None, 
         # 4. Receive Response
         response_text = ""
         async for message in session.receive():
-            if message.server_content and message.server_content.model_turn:
-                parts = message.server_content.model_turn.parts
-                if parts:
-                    for part in parts:
-                        if part.text:
+            # Try direct text first
+            if getattr(message, "text", None):
+                response_text += message.text
+                break
+            # Try server_content path
+            if getattr(message, "server_content", None):
+                model_turn = getattr(message.server_content, "model_turn", None)
+                if model_turn:
+                    for part in getattr(model_turn, "parts", []):
+                        if getattr(part, "text", None):
                             response_text += part.text
-                
-                if message.server_content.turn_complete:
+                # Stop reading when turn is complete
+                if getattr(message.server_content, "turn_complete", False):
                     break
-        
+
         if not response_text:
             return None
             

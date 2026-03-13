@@ -82,8 +82,14 @@ async def run_tests():
     # TEST 3 — CONTEXT_MERGER
     print("RUNNING TEST 3: CONTEXT_MERGER...")
     try:
-        assert build_audio_part(b"test")["mime_type"] == "audio/pcm"
-        assert build_vision_part("abc")["mime_type"] == "image/jpeg"
+        audio_input = build_audio_part(b"test")
+        assert hasattr(audio_input, 'audio'), "audio_input should have audio"
+        assert audio_input.audio.mime_type == "audio/pcm"
+        
+        vision_input = build_vision_part("abc")
+        assert hasattr(vision_input, 'video'), "vision_input should have video"
+        assert vision_input.video.mime_type == "image/jpeg"
+        
         assert build_vision_part(None) is None
         assert build_vision_part("") is None
         
@@ -132,7 +138,7 @@ async def run_tests():
             
         client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
         
-        async with client.aio.live.connect(model="gemini-2.5-flash-native-audio-latest", config=get_live_config()) as session:
+        async with client.aio.live.connect(model="gemini-2.0-flash-exp", config=get_live_config()) as session:
             # 4. Merge and Send
             result = await merge_and_send(session, b'\x00\x01' * 512, frame_base64, mock_state)
             assert result is not None, "Pipeline returned None"
