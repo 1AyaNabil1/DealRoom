@@ -43,8 +43,7 @@ def get_live_config() -> dict:
     
     return {
         "system_instruction": system_instruction,
-        "response_modalities": ["AUDIO"],
-        "output_audio_transcription": {},
+        "response_modalities": ["TEXT"],
     }
 
 async def stream_microphone() -> AsyncGenerator[bytes, None]:
