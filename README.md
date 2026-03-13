@@ -1,59 +1,108 @@
 <div align="center">
 
-# DealRoom
-**Real-time AI negotiation copilot powered by Gemini 2.5 Flash**
+# DEALROOM
+## Real-Time Negotiation Intelligence Agent
+### Your silent AI copilot for every sales call
+
+Gemini Live Agent Challenge | March 2026
 
 ![DealRoom Demo](demo.gif)
-*The DealRoom overlay in action.*
 
 </div>
 
-## Overview
-DealRoom is an unintrusive, real-time sales and negotiation assistant. It listens to your live calls, surfaces tactical advice, detects red flags, and delivers post-call debriefs—all within a clean, floating overlay that stays out of your way.
+## Project Overview
+- Project: DealRoom
+- Tagline: Your silent AI copilot for every sales call
+- Challenge: Gemini Live Agent Challenge
+- Repository: https://github.com/1AyaNabil1/DealRoom
 
-## Features
-- **Real-time Tactical Advice**: Instant suggestions on what to say next to close the deal.
-- **Red Flag Detection**: Automatic alerts for warning signs in the conversation (e.g., budget hesitation, competitor mentions).
-- **Post-call Debriefs**: Comprehensive summaries and action items generated immediately after the call.
-- **Unintrusive Floating UI**: A vanilla JS overlay that floats above your workspace without interrupting your flow.
+## Hackathon Requirement Coverage (Judge Checklist)
+This section maps each mandatory requirement to concrete evidence in this repository.
 
-## Quick Start
+1. Leverages a Gemini model
+- Evidence: Google GenAI SDK usage in [src/agent.py](src/agent.py) and [src/context_merger.py](src/context_merger.py)
+- Evidence: Gemini model usage with live session connect in [src/agent.py](src/agent.py)
 
-### 1. Install Dependencies
+2. Built with Google GenAI SDK or ADK
+- Evidence: Google GenAI SDK imports and client/session usage in [src/agent.py](src/agent.py) and [src/context_merger.py](src/context_merger.py)
+
+3. Uses at least one Google Cloud service
+- Evidence: Google Cloud Text-to-Speech API integration in [src/server.py](src/server.py)
+- Evidence: Vertex AI endpoint API call example in [src/gcp_vertex_demo.py](src/gcp_vertex_demo.py)
+- Direct GitHub link (requirement option 2 proof): https://github.com/1AyaNabil1/DealRoom/blob/main/src/gcp_vertex_demo.py
+
+4. Public code repository with reproducible spin-up instructions
+- Evidence: This README Quick Start section
+
+5. Google Cloud deployment proof
+- Evidence (infrastructure and deployment code): [infra/main.tf](infra/main.tf), [Dockerfile](Dockerfile), [scripts/deploy.sh](scripts/deploy.sh)
+- Requirement-compatible proof link to Google Cloud API usage code: https://github.com/1AyaNabil1/DealRoom/blob/main/src/gcp_vertex_demo.py
+
+6. Architecture diagram
+- Evidence: Architecture/data flow section below (and diagram image should be uploaded in Devpost media carousel)
+
+## Text Description
+DealRoom is a real-time negotiation copilot that runs as a floating overlay during sales calls. It captures microphone audio in short windows, sends context to an AI agent, classifies live signals (TACTIC, SIGNAL, RED_FLAG), and returns concise coaching cards. At session end, it generates a structured debrief and can read critical guidance aloud.
+
+## Core Features
+- Real-time tactical coaching cards over WebSocket
+- Red-flag detection for risk moments
+- Post-call debrief generation
+- Text-to-speech playback with layered fallback
+- Floating overlay UI that stays visible but non-blocking
+
+## Technologies Used
+- Backend: FastAPI + WebSocket + asyncio
+- AI SDK: Google GenAI SDK
+- Google Cloud APIs: Text-to-Speech, Vertex AI endpoint example
+- Frontend: Vanilla JavaScript + MediaRecorder
+- Deployment assets: Dockerfile + Terraform
+
+## Quick Start (Spin-Up Instructions)
+### 1. Install dependencies
 ```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
-Create a `.env` file and add your Google Gemini API key:
+### 2. Configure environment
 ```bash
-echo 'GOOGLE_API_KEY=your_key' > .env
+cat > .env << 'EOF'
+GOOGLE_API_KEY=your_google_ai_studio_key
+# Optional for Google Cloud TTS
+GCP_PROJECT_ID=your_gcp_project_id
+# Optional for Vertex endpoint demo
+GCP_LOCATION=us-central1
+VERTEX_ENDPOINT_ID=your_vertex_endpoint_id
+EOF
 ```
 
-### 3. Run the Server
+### 3. Run backend
 ```bash
-uvicorn server:app --host 0.0.0.0 --port 8080
+uvicorn src.server:app --host 0.0.0.0 --port 8080 --env-file .env
 ```
 
-### 4. Open the Overlay
-Navigate to `http://localhost:8080/overlay` in your browser.
+### 4. Open overlay
+Go to http://localhost:8080/overlay and allow microphone access.
 
-## Tech Stack
-- **Backend**: FastAPI + WebSockets (`server.py`)
-- **AI Brain**: Gemini 2.5 Flash
-- **Frontend**: Vanilla JS floating overlay
-- **Audio Fallback**: macOS TTS
+## Google Cloud API Proof (Code Links)
+- Vertex AI endpoint call demo file: [src/gcp_vertex_demo.py](src/gcp_vertex_demo.py)
+- Google Cloud TTS request flow: [src/server.py](src/server.py)
+- Terraform enabling GCP services including Vertex AI and Cloud Run: [infra/main.tf](infra/main.tf)
 
-## Judge Evidence (Google Cloud API Usage)
-To make technical validation fast for judges, here are direct code links that demonstrate Google Cloud service/API usage:
+## Architecture Summary
+1. Browser overlay captures microphone chunks.
+2. Chunks stream to FastAPI over WebSocket.
+3. Backend sends contextual prompts to the AI engine and parses structured JSON responses.
+4. Overlay renders TACTIC/SIGNAL/RED_FLAG cards.
+5. TTS endpoint synthesizes key messages via Google Cloud TTS (with fallback path).
+6. Debrief endpoint returns a compact post-session summary.
 
-- **Vertex AI endpoint call example**: https://github.com/1AyaNabil1/DealRoom/blob/main/src/gcp_vertex_demo.py
-- **Google Cloud Text-to-Speech integration in backend**: https://github.com/1AyaNabil1/DealRoom/blob/main/src/server.py
-
-The Vertex example includes a full endpoint prediction call path via `PredictionServiceClient`, request payload assembly, and endpoint resource formatting.
+## Bonus Criteria Coverage
+- Infrastructure as code: [infra/main.tf](infra/main.tf)
+- Containerized deployment path: [Dockerfile](Dockerfile)
+- Deployment script: [scripts/deploy.sh](scripts/deploy.sh)
 
 ---
-<div align="center">
-  <p>Built for the Google Gemini Live Agent Challenge — March 2026</p>
-  <p><em>Built by AyaNexus 🦢</em></p>
-</div>
+Built for the Gemini Live Agent Challenge.

@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import uvicorn
 from google import genai
-import anthropic
 
 try:
     from google.cloud import texttospeech
@@ -118,6 +117,34 @@ class TTSRequest(BaseModel):
 
 class DebriefRequest(BaseModel):
     session_id: str
+
+
+def _gemini_generate_text(prompt: str, model: str = "gemini-2.5-flash") -> str:
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not configured")
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(model=model, contents=prompt)
+
+    text = getattr(response, "text", None)
+    if text:
+        return text.strip()
+
+    # Fallback for SDK response variants where text is nested in candidates/parts.
+    try:
+        candidates = getattr(response, "candidates", []) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", []) if content else []
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    return part_text.strip()
+    except Exception:
+        pass
+
+    raise RuntimeError("Gemini returned an empty response")
 
 
 def _google_tts_synthesize(text: str, voice_name: str) -> bytes:
@@ -240,9 +267,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
         "session_id": session_id
     })
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
-        await websocket.send_json({"type": "ERROR", "message": "API key not configured"})
+        await websocket.send_json({"type": "ERROR", "message": "GOOGLE_API_KEY is not configured"})
         await websocket.close()
         return
 
@@ -282,13 +309,11 @@ Return ONLY valid JSON, no other text:
 Valid types: TACTIC, SIGNAL, RED_FLAG
 Current session context: {state_to_prompt_context(state)}"""
 
-                    claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-                    message = claude.messages.create(
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=200,
-                        messages=[{"role": "user", "content": prompt}]
+                    text = await asyncio.to_thread(
+                        _gemini_generate_text,
+                        prompt,
+                        "gemini-2.5-flash",
                     )
-                    text = message.content[0].text.strip()
                     # Strip markdown if present
                     if text.startswith("```"):
                         text = text.split("```")[1]
@@ -340,7 +365,7 @@ async def debrief(request: DebriefRequest):
             "session_id": request.session_id
         })
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GOOGLE_API_KEY")
 
     prompt = f"""You are DealRoom. Generate a post-call debrief in under 60 words.
 SESSION DATA:
@@ -355,13 +380,13 @@ KEY LEVERAGE: what worked in our favor
 FOLLOW UP: one specific next action"""
 
     try:
-        claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        message = claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}]
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY is not configured")
+        debrief_text = await asyncio.to_thread(
+            _gemini_generate_text,
+            prompt,
+            "gemini-2.5-flash",
         )
-        debrief_text = message.content[0].text.strip()
     except Exception:
         debrief_text = "Session complete. Review your notes for follow-up actions."
 
