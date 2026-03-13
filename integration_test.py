@@ -6,13 +6,14 @@ import sys
 import json
 import logging
 from PIL import Image
+from dotenv import load_dotenv
 
 # Import DealRoom components
 try:
     from screen_capture import frame_generator
     from negotiation_state import create_session, load_state, update_state, NegotiationState
     from context_merger import build_audio_part, build_vision_part, parse_gemini_response, merge_and_send
-    from agent import connect_and_test, get_live_config
+    from agent import connect_and_test, get_live_config, get_live_model
     from google import genai
 except ImportError as e:
     print(f"IMPORT ERROR: {e}")
@@ -20,6 +21,7 @@ except ImportError as e:
 
 # Configure logging to be quiet during tests
 logging.basicConfig(level=logging.ERROR)
+load_dotenv()
 
 async def run_tests():
     results = []
@@ -132,9 +134,12 @@ async def run_tests():
             
         client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
         
-        async with client.aio.live.connect(model="gemini-2.5-flash-native-audio-latest", config=get_live_config()) as session:
+        # 0.5 sec silent PCM 16kHz mono 16-bit
+        silent_audio = b'\x00\x00' * 8000 
+        
+        async with client.aio.live.connect(model=get_live_model(), config=get_live_config()) as session:
             # 4. Merge and Send
-            result = await merge_and_send(session, b'\x00\x01' * 512, frame_base64, mock_state)
+            result = await merge_and_send(session, silent_audio, frame_base64, mock_state)
             assert result is not None, "Pipeline returned None"
             
             # 5. Parse and Assert

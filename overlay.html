@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DealRoom Overlay</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --border: #1e293b;
+      --text: #ffffff;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --warn: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: transparent;
+    }
+
+    .overlay-card {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 9999;
+      width: 380px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      color: var(--text);
+      padding: 12px 14px;
+      opacity: 1;
+      transition: opacity 0.2s ease, border-color 0.2s ease;
+    }
+
+    .overlay-card.flash {
+      border-color: var(--accent);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .timer {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .separator {
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 12px;
+    }
+
+    .main-message {
+      margin-bottom: 12px;
+    }
+
+    .main-message.hidden {
+      display: none;
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #fff;
+      background: #1d4ed8;
+    }
+
+    .message {
+      margin-top: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.35;
+    }
+
+    .confidence {
+      margin-top: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+      flex: 0 0 auto;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .mute-btn {
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #1e293b;
+      color: #94a3b8;
+    }
+
+    .mute-btn.muted {
+      background: #7f1d1d;
+      color: #fff;
+    }
+
+    .counter {
+      font-size: 11px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div id="overlayCard" class="overlay-card" role="status" aria-live="polite">
+    <div class="header">
+      <div class="title">🎯 DealRoom</div>
+      <div id="timer" class="timer">00:00</div>
+    </div>
+    <div class="separator"></div>
+
+    <div id="mainMessage" class="main-message">
+      <span id="typeBadge" class="badge">TACTIC</span>
+      <div id="messageText" class="message">Waiting for tactical signals...</div>
+      <div id="confidenceRow" class="confidence">
+        <span id="confidenceDot" class="dot"></span>
+        <span id="confidenceText">HIGH</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button id="muteButton" class="mute-btn" type="button">🔊 AUDIO ON</button>
+      <div id="counter" class="counter">0 signals</div>
+    </div>
+  </div>
+
+  <script>
+    const WS_URL = "ws://localhost:8080/stream";
+
+    const badgeStyles = {
+      TACTIC: "#1D4ED8",
+      SIGNAL: "#065F46",
+      RED_FLAG: "#991B1B",
+      DEBRIEF: "#4C1D95"
+    };
+
+    const confidenceStyles = {
+      HIGH: "#22C55E",
+      MEDIUM: "#F59E0B"
+    };
+
+    const overlayCard = document.getElementById("overlayCard");
+    const mainMessage = document.getElementById("mainMessage");
+    const typeBadge = document.getElementById("typeBadge");
+    const messageText = document.getElementById("messageText");
+    const confidenceDot = document.getElementById("confidenceDot");
+    const confidenceText = document.getElementById("confidenceText");
+    const muteButton = document.getElementById("muteButton");
+    const counter = document.getElementById("counter");
+    const timer = document.getElementById("timer");
+
+    let ws = null;
+    let reconnectTimeout = null;
+    let timerInterval = null;
+    let elapsedSeconds = 0;
+    let signalCount = 0;
+    let isMuted = false;
+
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function startSessionTimer() {
+      clearInterval(timerInterval);
+      elapsedSeconds = 0;
+      timer.textContent = "00:00";
+      timerInterval = setInterval(() => {
+        elapsedSeconds += 1;
+        timer.textContent = formatTime(elapsedSeconds);
+      }, 1000);
+    }
+
+    function setMuteState(nextMuted) {
+      isMuted = nextMuted;
+      muteButton.classList.toggle("muted", isMuted);
+      muteButton.textContent = isMuted ? "🔇 MUTED" : "🔊 AUDIO ON";
+    }
+
+    function updateCounter() {
+      counter.textContent = `${signalCount} signals`;
+    }
+
+    function flashCard() {
+      overlayCard.classList.add("flash");
+      setTimeout(() => overlayCard.classList.remove("flash"), 600);
+    }
+
+    function showReconnectWarning() {
+      overlayCard.style.opacity = "1";
+      mainMessage.classList.remove("hidden");
+      typeBadge.textContent = "SIGNAL";
+      typeBadge.style.background = badgeStyles.SIGNAL;
+      messageText.textContent = "⚠ Reconnecting...";
+      messageText.style.color = "#F59E0B";
+      confidenceText.textContent = "MEDIUM";
+      confidenceText.style.color = confidenceStyles.MEDIUM;
+      confidenceDot.style.background = confidenceStyles.MEDIUM;
+    }
+
+    function applyPayload(payload) {
+      const type = String(payload.type || "").toUpperCase();
+      if (type === "SILENT") {
+        overlayCard.style.opacity = "0.3";
+        mainMessage.classList.add("hidden");
+        return;
+      }
+
+      overlayCard.style.opacity = "1";
+      mainMessage.classList.remove("hidden");
+      messageText.style.color = "#FFFFFF";
+
+      const safeType = badgeStyles[type] ? type : "TACTIC";
+      typeBadge.textContent = safeType;
+      typeBadge.style.background = badgeStyles[safeType];
+
+      const text = payload.message || payload.text || payload.tactic || "";
+      messageText.textContent = text || "No message content.";
+
+      const confidence = String(payload.confidence || "HIGH").toUpperCase();
+      const safeConfidence = confidenceStyles[confidence] ? confidence : "HIGH";
+      confidenceText.textContent = safeConfidence;
+      confidenceText.style.color = confidenceStyles[safeConfidence];
+      confidenceDot.style.background = confidenceStyles[safeConfidence];
+
+      signalCount += 1;
+      updateCounter();
+      flashCard();
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimeout) return;
+      reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        connectWebSocket();
+      }, 3000);
+    }
+
+    function connectWebSocket() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      ws = new WebSocket(WS_URL);
+
+      ws.addEventListener("open", () => {
+        startSessionTimer();
+      });
+
+      ws.addEventListener("message", (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          applyPayload(payload);
+        } catch (_err) {
+          showReconnectWarning();
+        }
+      });
+
+      ws.addEventListener("error", () => {
+        showReconnectWarning();
+        scheduleReconnect();
+      });
+
+      ws.addEventListener("close", () => {
+        showReconnectWarning();
+        scheduleReconnect();
+      });
+    }
+
+    muteButton.addEventListener("click", () => {
+      setMuteState(!isMuted);
+    });
+
+    setMuteState(false);
+    updateCounter();
+    connectWebSocket();
+  </script>
+</body>
+</html>

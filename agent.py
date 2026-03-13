@@ -7,8 +7,8 @@ import uuid
 import argparse
 from typing import AsyncGenerator
 import pyaudio
+from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 
 # Import from other DealRoom modules
 from screen_capture import frame_generator
@@ -23,8 +23,15 @@ CHUNK = 1024
 
 # Global stop event
 stop_event = asyncio.Event()
+LIVE_MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025"
+LIVE_API_VERSION = "v1beta"
 
-def get_live_config() -> types.LiveConnectConfig:
+load_dotenv()
+
+def get_live_model() -> str:
+    return LIVE_MODEL_ID
+
+def get_live_config() -> dict:
     """
     Returns a fully configured LiveConnectConfig object for the DealRoom agent.
     """
@@ -34,12 +41,11 @@ def get_live_config() -> types.LiveConnectConfig:
         "Never hallucinate numbers — only reference what you have heard or seen in this session."
     )
     
-    return types.LiveConnectConfig(
-        system_instruction=types.Content(
-            parts=[types.Part(text=system_instruction)]
-        ),
-        response_modalities=["TEXT"]
-    )
+    return {
+        "system_instruction": system_instruction,
+        "response_modalities": ["AUDIO"],
+        "output_audio_transcription": {},
+    }
 
 async def stream_microphone() -> AsyncGenerator[bytes, None]:
     """
@@ -90,10 +96,10 @@ async def run_dealroom_session(session_id: str = None) -> None:
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
-    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+    client = genai.Client(api_key=api_key, http_options={'api_version': LIVE_API_VERSION})
     
     try:
-        async with client.aio.live.connect(model="gemini-2.5-flash-native-audio-latest", config=get_live_config()) as session:
+        async with client.aio.live.connect(model=get_live_model(), config=get_live_config()) as session:
             frame_iter = frame_generator(stop_event).__aiter__()
             audio_iter = stream_microphone().__aiter__()
             
@@ -144,34 +150,49 @@ async def run_dealroom_session(session_id: str = None) -> None:
 
 async def connect_and_test() -> str:
     """
-    Legacy test function for connection check.
+    Revised test function for connection check with audio-first handshake.
     """
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
-    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+    client = genai.Client(api_key=api_key, http_options={'api_version': LIVE_API_VERSION})
     config = get_live_config()
-    model_id = "gemini-2.5-flash-native-audio-latest"
-    response_text = ""
+    model_id = "gemini-2.5-flash-native-audio-preview-12-2025"
+    
+    silent_audio = b'\x00\x00' * 8000  # 0.5 sec silent PCM 16kHz mono 16-bit
 
     try:
         async with client.aio.live.connect(model=model_id, config=config) as session:
-            await session.send("Hello, confirm connection and readiness.", end_of_turn=True)
+            # Send audio FIRST — required by this model
+            await session.send(input={"data": silent_audio, "mime_type": "audio/pcm"})
+            
+            # Then send text with end_of_turn
+            await session.send(input="Confirm you are connected.", end_of_turn=True)
+            
+            response_text = ""
             async for message in session.receive():
-                if message.server_content and message.server_content.model_turn:
-                    parts = message.server_content.model_turn.parts
-                    if parts:
-                        for part in parts:
-                            if part.text:
+                # Try direct text first
+                if getattr(message, "text", None):
+                    response_text += message.text
+                    break
+                # Try server_content path
+                if getattr(message, "server_content", None):
+                    model_turn = getattr(message.server_content, "model_turn", None)
+                    if model_turn:
+                        for part in getattr(model_turn, "parts", []):
+                            if getattr(part, "text", None):
                                 response_text += part.text
-                    if message.server_content.turn_complete:
+                    # Stop reading when turn is complete
+                    if getattr(message.server_content, "turn_complete", False):
                         break
+            if response_text:
+                return response_text
     except Exception as e:
         print(f"Exception during Live API session: {type(e).__name__}: {str(e)}")
         raise
 
-    return response_text
+    return "CONNECTED"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DealRoom Multimodal Agent")

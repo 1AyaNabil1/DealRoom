@@ -41,12 +41,12 @@ async def merge_and_send(session, audio_bytes: bytes, frame_base64: str | None, 
     """
     try:
         # 1. Send Audio
-        await session.send(input=build_audio_part(audio_bytes))
+        await session.send(input={"data": audio_bytes, "mime_type": "audio/pcm"})
         
         # 2. Send Vision (if available)
         vision_part = build_vision_part(frame_base64)
         if vision_part:
-            await session.send(input=vision_part)
+            await session.send(input={"data": frame_base64, "mime_type": "image/jpeg"})
             
         # 3. Send Context Text with end_of_turn=True
         context_text = build_context_message(state)
@@ -55,14 +55,19 @@ async def merge_and_send(session, audio_bytes: bytes, frame_base64: str | None, 
         # 4. Receive Response
         response_text = ""
         async for message in session.receive():
-            if message.server_content and message.server_content.model_turn:
-                parts = message.server_content.model_turn.parts
-                if parts:
-                    for part in parts:
-                        if part.text:
+            # Try direct text first
+            if getattr(message, "text", None):
+                response_text += message.text
+                break
+            # Try server_content path
+            if getattr(message, "server_content", None):
+                model_turn = getattr(message.server_content, "model_turn", None)
+                if model_turn:
+                    for part in getattr(model_turn, "parts", []):
+                        if getattr(part, "text", None):
                             response_text += part.text
-                
-                if message.server_content.turn_complete:
+                # Stop reading when turn is complete
+                if getattr(message.server_content, "turn_complete", False):
                     break
         
         if not response_text:
