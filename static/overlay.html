@@ -4,258 +4,529 @@
 <meta charset="UTF-8">
 <title>DealRoom</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: transparent; font-family: system-ui, -apple-system, sans-serif; }
-#card {
-  position: fixed; bottom: 24px; right: 24px; width: 380px;
-  background: #0F172A; border: 1px solid #1E293B; border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 9999;
-  overflow: hidden; opacity: 1; transition: opacity 0.3s, border-color 0.3s;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+#overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 380px;
+  background: #0F172A;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+  z-index: 9999;
 }
-.header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; border-bottom: 1px solid #1E293B;
+
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
-.logo { font-size: 14px; font-weight: 700; }
-.logo .deal { color: white; }
-.logo .room { color: #2563EB; }
-.header-right { display: flex; align-items: center; gap: 8px; }
-.timer { font-size: 12px; color: #64748B; }
+
+#logo { display: flex; align-items: center; gap: 8px; }
+#logo-text { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
+#logo-text span { color: #6366F1; }
+
+#header-right { display: flex; align-items: center; gap: 10px; }
+
+#timer {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums;
+  background: rgba(255,255,255,0.06);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
 #end-btn {
-  font-size: 11px; padding: 5px 10px; border-radius: 6px;
-  border: none; cursor: pointer; background: #7F1D1D; color: white;
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: background 0.15s;
 }
-.history-panel {
-  background: #0A0F1A; max-height: 200px; overflow-y: auto;
-  padding: 0 16px; display: none;
+#end-btn:hover { background: #DC2626; }
+
+#status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(99,102,241,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
 }
-.history-panel.open { display: block; padding: 8px 16px; }
-.history-item {
-  font-size: 11px; padding: 3px 0;
-  border-bottom: 1px solid #1E293B;
+
+#status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: pulse 2s infinite;
 }
-.history-item.tactic { color: #93C5FD; }
-.history-item.signal { color: #6EE7B7; }
-.history-item.red_flag { color: #FCA5A5; }
-.history-item.debrief { color: #C4B5FD; }
-.body { padding: 16px; min-height: 70px; }
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+#status-text {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+#signal-count-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+}
+
+#content {
+  min-height: 100px;
+  padding: 16px;
+}
+
+#empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  gap: 8px;
+  color: rgba(255,255,255,0.2);
+}
+#empty-state .icon { font-size: 28px; }
+#empty-state p { font-size: 13px; }
+
+#card {
+  display: none;
+  border-radius: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
 .badge {
-  display: inline-block; padding: 4px 10px; border-radius: 20px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 4px;
 }
-.badge.tactic { background: #1D4ED8; color: white; }
-.badge.signal { background: #065F46; color: white; }
-.badge.red_flag { background: #991B1B; color: white; }
-.badge.debrief { background: #4C1D95; color: white; }
-.message { color: white; font-size: 15px; font-weight: 600; margin: 8px 0 6px 0; }
-.confidence { font-size: 11px; margin-top: 4px; }
-.confidence.high { color: #22C55E; }
-.confidence.medium { color: #F59E0B; }
-.footer {
-  display: flex; align-items: center; padding: 10px 16px;
-  border-top: 1px solid #1E293B; gap: 8px;
+.badge-tactic   { background: rgba(99,102,241,0.2);  color: #818CF8; border: 1px solid rgba(99,102,241,0.3); }
+.badge-signal   { background: rgba(34,197,94,0.15);  color: #4ADE80; border: 1px solid rgba(34,197,94,0.25); }
+.badge-red_flag { background: rgba(239,68,68,0.15);  color: #F87171; border: 1px solid rgba(239,68,68,0.25); }
+.badge-debrief  { background: rgba(168,85,247,0.15); color: #C084FC; border: 1px solid rgba(168,85,247,0.25); }
+
+#confidence-pill {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
 }
-#mute-btn {
-  font-size: 11px; padding: 5px 10px; border-radius: 6px;
-  border: none; cursor: pointer; background: #1E293B; color: #94A3B8;
+
+#card-message {
+  font-size: 14px;
+  color: rgba(255,255,255,0.88);
+  line-height: 1.6;
+  font-weight: 400;
 }
-#mute-btn.muted { background: #7F1D1D; color: white; }
-#speaking-indicator { color: #64748B; font-size: 11px; letter-spacing: 2px; }
-.counter { margin-left: auto; font-size: 11px; color: #64748B; }
-#history-toggle { font-size: 11px; color: #64748B; cursor: pointer; margin-left: 8px; }
-@keyframes pulse { 0% { opacity: 0.3; } 100% { opacity: 1.0; } }
-#speaking-indicator.speaking {
-  animation: pulse 600ms ease-in-out infinite alternate; color: #22C55E;
+
+#card-reasoning {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.5;
+  font-style: italic;
 }
-@keyframes flashBorder {
-  0% { border-color: #2563EB; }
-  100% { border-color: #1E293B; }
+
+#history-section {
+  border-top: 1px solid rgba(255,255,255,0.05);
+  margin-top: 12px;
 }
-.flash { animation: flashBorder 600ms ease-out forwards; }
+
+#history-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 10px 16px;
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-align: left;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+#history-toggle:hover { color: rgba(255,255,255,0.5); }
+
+#history-panel {
+  display: none;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 0 16px 12px;
+}
+
+.history-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.history-item:last-child { border-bottom: none; }
+.history-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.dot-tactic   { background: #818CF8; }
+.dot-signal   { background: #4ADE80; }
+.dot-red_flag { background: #F87171; }
+.dot-debrief  { background: #C084FC; }
+.history-text { font-size: 12px; color: rgba(255,255,255,0.4); line-height: 1.5; }
+
+#footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.2);
+}
+
+#mic-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  font-weight: 600;
+}
+
+.mic-icon {
+  width: 14px; height: 14px;
+  fill: rgba(255,255,255,0.3);
+}
+
+#speaking-indicator {
+  display: none;
+  align-items: center;
+  gap: 3px;
+}
+#speaking-indicator.active { display: flex; }
+#speaking-indicator span {
+  width: 3px;
+  border-radius: 2px;
+  background: #6366F1;
+  animation: bar 0.8s ease infinite;
+}
+#speaking-indicator span:nth-child(1) { height: 8px; animation-delay: 0s; }
+#speaking-indicator span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+#speaking-indicator span:nth-child(3) { height: 6px; animation-delay: 0.3s; }
+@keyframes bar {
+  0%,100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+#reconnecting {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(239,68,68,0.08);
+  font-size: 11px;
+  color: #F87171;
+  font-weight: 600;
+}
 </style>
 </head>
 <body>
-<div id="card">
-  <div class="history-panel" id="history-panel"></div>
-  <div class="header">
-    <span class="logo"><span class="deal">DEAL</span><span class="room">ROOM</span></span>
-    <div class="header-right">
-      <span class="timer" id="timer">00:00</span>
+
+<div id="overlay">
+
+  <div id="reconnecting">
+    <span>&#9651;</span> Reconnecting...
+  </div>
+
+  <div id="header">
+    <div id="logo">
+      <div id="logo-text">DEAL<span>ROOM</span></div>
+    </div>
+    <div id="header-right">
+      <div id="timer">00:00</div>
       <button id="end-btn" onclick="endSession()">END SESSION</button>
     </div>
   </div>
-  <div class="body" id="body">
-    <div id="status" style="color:#F59E0B;font-size:13px">⚠ Connecting...</div>
-  </div>
-  <div class="footer">
-    <button id="mute-btn" onclick="toggleMute()">🔊 AUDIO ON</button>
-    <span id="speaking-indicator">▪▪▪</span>
-    <span class="counter" id="counter">0 signals</span>
-    <span id="history-toggle" onclick="toggleHistory()">📋</span>
-  </div>
-</div>
-<script>
-const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const WS_URL = `${protocol}//${window.location.host}/stream`;
-let isMuted = false;
-let signalCount = 0;
-let sessionSeconds = 0;
-let timerInterval = null;
-let currentSessionId = null;
-let messageHistory = [];
-let ws = null;
 
-function pad(n) { return String(n).padStart(2, "0"); }
+  <div id="status-bar">
+    <div id="status-dot"></div>
+    <span id="status-text">Listening</span>
+    <span id="signal-count-badge">0 signals</span>
+  </div>
+
+  <div id="content">
+    <div id="empty-state">
+      <div class="icon">&#127908;</div>
+      <p>Waiting for negotiation signals...</p>
+    </div>
+
+    <div id="card">
+      <div id="card-header">
+        <span id="card-badge" class="badge badge-tactic">TACTIC</span>
+        <span id="confidence-pill">HIGH</span>
+      </div>
+      <div id="card-message"></div>
+      <div id="card-reasoning"></div>
+    </div>
+  </div>
+
+  <div id="history-section">
+    <button id="history-toggle" onclick="toggleHistory()">&#9660; Signal history</button>
+    <div id="history-panel"></div>
+  </div>
+
+  <div id="footer">
+    <div id="mic-status">
+      <svg class="mic-icon" viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-7 9a7 7 0 0 0 14 0M12 20v3M9 23h6"/></svg>
+      AUDIO ON
+    </div>
+    <div id="speaking-indicator">
+      <span></span><span></span><span></span>
+    </div>
+    <span id="footer-status" style="font-size:11px;color:rgba(255,255,255,0.25)"></span>
+  </div>
+
+</div>
+
+<script>
+let ws = null;
+let sessionId = null;
+let signalCount = 0;
+let timerInterval = null;
+let seconds = 0;
+let messageHistory = [];
+let historyOpen = false;
+let micStream = null;
+let mediaRecorder = null;
+let sessionEnded = false;  // add this with the other let declarations at top
+let audioQueue = [];
+let isPlaying = false;
 
 function startTimer() {
-  sessionSeconds = 0;
+  seconds = 0;
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
-    sessionSeconds++;
-    const m = Math.floor(sessionSeconds / 60);
-    const s = sessionSeconds % 60;
-    document.getElementById("timer").textContent = pad(m) + ":" + pad(s);
+    seconds++;
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    document.getElementById('timer').textContent = m + ':' + s;
   }, 1000);
 }
 
-function connectWebSocket() {
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    document.getElementById("status").textContent = "";
-    startTimer();
-  };
-
-  ws.onmessage = (event) => {
-    let parsed;
-    try { parsed = JSON.parse(event.data); } catch { return; }
-
-    if (parsed.type === "SESSION_INIT") {
-      currentSessionId = parsed.session_id;
-      return;
-    }
-
-    if (parsed.type === "SILENT") {
-      document.getElementById("card").style.opacity = "0.3";
-      return;
-    }
-
-    document.getElementById("card").style.opacity = "1.0";
-    updateBody(parsed);
-    flashCard();
-
-    signalCount++;
-    document.getElementById("counter").textContent = signalCount + " signals";
-
-    messageHistory.push(parsed);
-    updateHistoryPanel();
-
-    if (parsed.type === "TACTIC" || parsed.type === "RED_FLAG") {
-      speakMessage(parsed.message);
-    }
-  };
-
-  ws.onerror = () => {
-    document.getElementById("body").innerHTML =
-      '<div style="color:#F59E0B;font-size:13px">⚠ Reconnecting...</div>';
-  };
-
-  ws.onclose = () => {
-    clearInterval(timerInterval);
-    setTimeout(connectWebSocket, 3000);
-  };
-}
-
-function updateBody(parsed) {
-  const type = parsed.type.toLowerCase();
-  const confidence = (parsed.confidence || "").toLowerCase();
-  document.getElementById("body").innerHTML = `
-    <span class="badge ${type}">${parsed.type}</span>
-    <div class="message">${parsed.message || ""}</div>
-    <div class="confidence ${confidence}">
-      ${confidence === "high" ? "● HIGH CONFIDENCE" : "● MEDIUM CONFIDENCE"}
-    </div>`;
-}
-
-function flashCard() {
-  const card = document.getElementById("card");
-  card.classList.remove("flash");
-  void card.offsetWidth;
-  card.classList.add("flash");
+function toggleHistory() {
+  historyOpen = !historyOpen;
+  const panel = document.getElementById('history-panel');
+  const btn = document.getElementById('history-toggle');
+  panel.style.display = historyOpen ? 'block' : 'none';
+  btn.textContent = (historyOpen ? '▲' : '▼') + ' Signal history (' + messageHistory.length + ')';
 }
 
 function updateHistoryPanel() {
-  const panel = document.getElementById("history-panel");
-  panel.innerHTML = messageHistory.map(m =>
-    `<div class="history-item ${m.type.toLowerCase()}">[${m.type}] ${m.message}</div>`
-  ).reverse().join("");
+  const panel = document.getElementById('history-panel');
+  panel.innerHTML = messageHistory.slice().reverse().map((d) => `
+    <div class="history-item">
+      <div class="history-dot dot-${(d.type || '').toLowerCase()}"></div>
+      <div class="history-text">${d.message || ''}</div>
+    </div>
+  `).join('');
+  const btn = document.getElementById('history-toggle');
+  btn.textContent = (historyOpen ? '▲' : '▼') + ' Signal history (' + messageHistory.length + ')';
 }
 
-function toggleHistory() {
-  document.getElementById("history-panel").classList.toggle("open");
+function showCard(data) {
+  document.getElementById('empty-state').style.display = 'none';
+  const card = document.getElementById('card');
+  card.style.display = 'block';
+  const badge = document.getElementById('card-badge');
+  const type = (data.type || 'SIGNAL').toUpperCase();
+  badge.textContent = type;
+  badge.className = 'badge badge-' + type.toLowerCase();
+  document.getElementById('confidence-pill').textContent = (data.confidence || 'HIGH').toString().toUpperCase();
+  document.getElementById('card-message').textContent = data.message || '';
+  document.getElementById('card-reasoning').textContent = data.reasoning || '';
+  card.style.animation = 'none';
+  card.offsetHeight;
+  card.style.animation = 'slideIn 0.3s ease';
 }
 
-function toggleMute() {
-  isMuted = !isMuted;
-  const btn = document.getElementById("mute-btn");
-  if (isMuted) {
-    btn.classList.add("muted");
-    btn.textContent = "🔇 MUTED";
-  } else {
-    btn.classList.remove("muted");
-    btn.textContent = "🔊 AUDIO ON";
+function setSpeakingIndicator(active) {
+  const indicator = document.getElementById('speaking-indicator');
+  if (!indicator) return;
+  indicator.classList.toggle('active', active);
+}
+
+function speakWithBrowser(text) {
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1.05;
+    utter.pitch = 0.95;
+    utter.onstart = () => setSpeakingIndicator(true);
+    utter.onend = () => setSpeakingIndicator(false);
+    utter.onerror = () => setSpeakingIndicator(false);
+    window.speechSynthesis.speak(utter);
+  } catch (e) {
+    setSpeakingIndicator(false);
   }
 }
 
-async function speakMessage(text) {
-  if (isMuted) return;
-  try {
-    const res = await fetch("http://localhost:8080/tts", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({text: text})
-    });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.playbackRate = 1.1;
-    const indicator = document.getElementById("speaking-indicator");
-    if (indicator) indicator.classList.add("speaking");
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      if (indicator) indicator.classList.remove("speaking");
-    };
-    await audio.play();
-  } catch (e) {}
+function speakMessage(text) {
+  audioQueue.push(text);
+  if (!isPlaying) processQueue();
+}
+
+function processQueue() {
+  if (audioQueue.length === 0) {
+    isPlaying = false;
+    document.getElementById('speaking-indicator').classList.remove('active');
+    return;
+  }
+  isPlaying = true;
+  const text = audioQueue.shift();
+  document.getElementById('speaking-indicator').classList.add('active');
+  fetch('/tts', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({text})
+  }).then(r => r.blob()).then(blob => {
+    const audio = new Audio(URL.createObjectURL(blob));
+    audio.onended = processQueue;
+    audio.onerror = processQueue;
+    audio.play();
+  }).catch(processQueue);
 }
 
 async function endSession() {
-  if (ws) ws.close();
+  sessionEnded = true;
   clearInterval(timerInterval);
-  document.getElementById("body").innerHTML =
-    '<div style="color:#94A3B8;font-size:13px">Generating debrief...</div>';
-  if (!currentSessionId) {
-    document.getElementById("body").innerHTML =
-      '<div style="color:#94A3B8;font-size:13px">No active session.</div>';
-    return;
-  }
+  if (ws) ws.close();
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  mediaRecorder = null;
+  micStream = null;
+
+  const sid = sessionId || 'unknown';
+  document.getElementById('footer-status').textContent = 'Generating debrief...';
+
   try {
-    const res = await fetch("http://localhost:8080/debrief", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({session_id: currentSessionId})
+    const res = await fetch(`${window.location.origin}/debrief`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: sid})
     });
     const data = await res.json();
-    document.getElementById("body").innerHTML = `
-      <span class="badge debrief">DEBRIEF</span>
-      <div class="message" style="font-size:13px">${data.debrief_text || "Session complete."}</div>`;
-    speakMessage(data.debrief_text || "Session complete.");
-    document.getElementById("counter").textContent = "Session saved.";
+    showCard({
+      type: 'DEBRIEF',
+      message: data.debrief_text || 'Session complete.',
+      confidence: '',
+      reasoning: ''
+    });
+    document.getElementById('footer-status').textContent = 'Session saved.';
+    speakMessage('Session complete. ' + ((data.debrief_text || '').split('.')[0] || ''));
   } catch (e) {
-    document.getElementById("body").innerHTML =
-      '<div style="color:#FCA5A5;font-size:13px">Debrief unavailable.</div>';
+    showCard({type: 'DEBRIEF', message: 'Session complete. Review your notes.', confidence: '', reasoning: ''});
+    document.getElementById('footer-status').textContent = 'Session complete.';
   }
+}
+
+function connectWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(protocol + '//' + window.location.host + '/stream');
+
+  document.getElementById('reconnecting').style.display = 'none';
+  document.getElementById('status-text').textContent = 'Listening';
+  document.getElementById('status-dot').style.background = '#22C55E';
+
+  ws.onopen = async function() {
+    startTimer();
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(micStream);
+      mediaRecorder.ondataavailable = function(e) {
+        if (e.data && e.data.size > 0 && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+      };
+      mediaRecorder.start(500);
+      ws.addEventListener('close', function() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+        if (micStream) micStream.getTracks().forEach(function(t) { t.stop(); });
+      });
+    } catch (err) {
+      document.getElementById('status-text').textContent = 'Mic blocked';
+      document.getElementById('status-dot').style.background = '#F87171';
+      console.log('Mic error:', err);
+    }
+  };
+
+  ws.onmessage = function(event) {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'SESSION_INIT') { sessionId = data.session_id; return; }
+      if (data.type === 'ERROR') { console.error(data.message); return; }
+      if (data.type === 'SILENT') return;
+      if (['TACTIC', 'SIGNAL', 'RED_FLAG', 'DEBRIEF'].includes(data.type)) {
+        signalCount++;
+        document.getElementById('signal-count-badge').textContent = signalCount + ' signals';
+        showCard(data);
+        messageHistory.push(data);
+        updateHistoryPanel();
+        if (['TACTIC', 'RED_FLAG'].includes(data.type)) speakMessage(data.message);
+      }
+    } catch (e) {
+      console.error('Parse error:', e);
+    }
+  };
+
+  ws.onclose = function() {
+    clearInterval(timerInterval);
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());
+    mediaRecorder = null;
+    micStream = null;
+    if (sessionEnded) return;
+    document.getElementById('reconnecting').style.display = 'flex';
+    document.getElementById('status-text').textContent = 'Disconnected';
+    document.getElementById('status-dot').style.background = '#F87171';
+    setTimeout(connectWebSocket, 3000);
+  };
 }
 
 connectWebSocket();

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import uvicorn
 from google import genai
+import anthropic
 
 try:
     from google.cloud import texttospeech
@@ -239,13 +240,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
         "session_id": session_id
     })
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         await websocket.send_json({"type": "ERROR", "message": "API key not configured"})
         await websocket.close()
         return
 
-    client = genai.Client(api_key=api_key)
     state = create_session(session_id)
     audio_chunks = []
     chunk_count = 0
@@ -269,28 +269,26 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
             except Exception:
                 break
 
-            # Every 8 chunks (~4 seconds of audio), ask Gemini for tactical advice
-            if chunk_count > 0 and chunk_count % 8 == 0:
+            # Every 20 chunks (~10 seconds of audio), ask Gemini for tactical advice
+            if chunk_count > 0 and chunk_count % 20 == 0:
                 try:
-                    prompt = f"""You are DealRoom, a silent real-time negotiation intelligence agent.
-Current negotiation context:
-{state_to_prompt_context(state)}
+                    prompt = f"""You are DealRoom, a real-time negotiation coach.
+IMPORTANT: Always respond with TACTIC, SIGNAL, or RED_FLAG. Never use SILENT.
+Always find coaching value even from silence — remind the user to anchor, listen, or prepare.
 
-A sales negotiation is happening live. Generate ONE tactical response as valid JSON only.
-No other text. No markdown. Just JSON.
+Return ONLY valid JSON, no other text:
+{{"type":"TACTIC","message":"your advice in under 20 words","confidence":"HIGH","reasoning":"one sentence"}}
 
-Format:
-{{"type":"TACTIC","message":"your tactical advice in under 25 words","confidence":"HIGH","reasoning":"one sentence"}}
+Valid types: TACTIC, SIGNAL, RED_FLAG
+Current session context: {state_to_prompt_context(state)}"""
 
-Valid types: TACTIC, SIGNAL, RED_FLAG, SILENT
-If nothing useful to say: {{"type":"SILENT"}}"""
-
-                    response = client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt
+                    claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+                    message = claude.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=200,
+                        messages=[{"role": "user", "content": prompt}]
                     )
-
-                    text = (response.text or "").strip()
+                    text = message.content[0].text.strip()
                     # Strip markdown if present
                     if text.startswith("```"):
                         text = text.split("```")[1]
@@ -315,6 +313,8 @@ If nothing useful to say: {{"type":"SILENT"}}"""
                         else:
                             state.key_moments.append(parsed.get("message", ""))
                         save_state(state)
+                        logger.info(f"WS state before send: {websocket.client_state}")
+                        logger.info(f"Sending to overlay: {parsed}")
                         await websocket.send_json(parsed)
 
                 except Exception as e:
@@ -340,8 +340,7 @@ async def debrief(request: DebriefRequest):
             "session_id": request.session_id
         })
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    client = genai.Client(api_key=api_key)
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
 
     prompt = f"""You are DealRoom. Generate a post-call debrief in under 60 words.
 SESSION DATA:
@@ -356,11 +355,13 @@ KEY LEVERAGE: what worked in our favor
 FOLLOW UP: one specific next action"""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
+        claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        message = claude.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}]
         )
-        debrief_text = (response.text or "").strip()
+        debrief_text = message.content[0].text.strip()
     except Exception:
         debrief_text = "Session complete. Review your notes for follow-up actions."
 
