@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Optional
 from google.genai import types
-from negotiation_state import NegotiationState, state_to_prompt_context
+from src.negotiation_state import NegotiationState, state_to_prompt_context
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

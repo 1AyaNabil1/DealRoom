@@ -24,10 +24,10 @@ except Exception:
     gTTS = None
 
 # Import components from the DealRoom modules
-from agent import get_live_config
-from screen_capture import frame_generator
-from negotiation_state import create_session, save_state, update_state, load_state, state_to_prompt_context
-from context_merger import merge_and_send, parse_gemini_response
+from src.agent import get_live_config
+from src.screen_capture import frame_generator
+from src.negotiation_state import create_session, save_state, update_state, load_state, state_to_prompt_context
+from src.context_merger import merge_and_send, parse_gemini_response
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -84,8 +84,13 @@ async def read_root():
 @app.get("/overlay", response_class=HTMLResponse)
 async def serve_overlay():
     import os
-    overlay_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay.html")
+    overlay_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "overlay.html")
     with open(overlay_path, "r") as f:
+        return f.read()
+
+@app.get("/test_mic", response_class=HTMLResponse)
+async def serve_test():
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "test_mic.html")) as f:
         return f.read()
 
 @app.get("/health")
@@ -281,7 +286,7 @@ Valid types: TACTIC, SIGNAL, RED_FLAG, SILENT
 If nothing useful to say: {{"type":"SILENT"}}"""
 
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-2.5-flash",
                         contents=prompt
                     )
 
@@ -352,7 +357,7 @@ FOLLOW UP: one specific next action"""
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         debrief_text = (response.text or "").strip()

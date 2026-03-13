@@ -95,7 +95,8 @@ body { background: transparent; font-family: system-ui, -apple-system, sans-seri
   </div>
 </div>
 <script>
-const WS_URL = "ws://localhost:8080/stream";
+const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL = `${protocol}//${window.location.host}/stream`;
 let isMuted = false;
 let signalCount = 0;
 let sessionSeconds = 0;

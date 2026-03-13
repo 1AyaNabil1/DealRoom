@@ -16,12 +16,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY agent.py .
-COPY server.py .
+COPY src/ ./src/
+COPY static/ ./static/
+COPY scripts/ ./scripts/
 
 # Expose the port (Cloud Run sets PORT automatically)
 ENV PORT 8080
 EXPOSE 8080
 
 # Command to run the application using uvicorn
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port $PORT"]
+CMD ["sh", "-c", "uvicorn src.server:app --host 0.0.0.0 --port $PORT"]

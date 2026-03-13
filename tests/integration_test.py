@@ -9,10 +9,10 @@ from PIL import Image
 
 # Import DealRoom components
 try:
-    from screen_capture import frame_generator
-    from negotiation_state import create_session, load_state, update_state, NegotiationState
-    from context_merger import build_audio_part, build_vision_part, parse_gemini_response, merge_and_send
-    from agent import connect_and_test, get_live_config
+    from src.screen_capture import frame_generator
+    from src.negotiation_state import create_session, load_state, update_state, NegotiationState
+    from src.context_merger import build_audio_part, build_vision_part, parse_gemini_response, merge_and_send
+    from src.agent import connect_and_test, get_live_config
     from google import genai
 except ImportError as e:
     print(f"IMPORT ERROR: {e}")

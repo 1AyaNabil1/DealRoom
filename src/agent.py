@@ -11,9 +11,9 @@ from google import genai
 from google.genai import types
 
 # Import from other DealRoom modules
-from screen_capture import frame_generator
-from negotiation_state import NegotiationState, create_session, update_state, save_state
-from context_merger import merge_and_send, parse_gemini_response
+from src.screen_capture import frame_generator
+from src.negotiation_state import NegotiationState, create_session, update_state, save_state
+from src.context_merger import merge_and_send, parse_gemini_response
 
 # Audio Configuration
 FORMAT = pyaudio.paInt16

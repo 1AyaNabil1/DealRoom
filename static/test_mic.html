@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<body>
+<button onclick="start()">Start</button>
+<div id="log"></div>
+<script>
+function log(msg) { document.getElementById('log').innerHTML += msg + '<br>'; }
+async function start() {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    log('Mic granted');
+    const ws = new WebSocket('ws://localhost:8080/stream');
+    ws.onopen = () => { log('WS connected'); };
+    ws.onmessage = (e) => { log('MSG: ' + e.data); };
+    ws.onerror = (e) => { log('WS ERROR: ' + JSON.stringify(e)); };
+    const mr = new MediaRecorder(stream);
+    mr.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+            log('Sending chunk: ' + e.data.size + ' bytes');
+            ws.send(e.data);
+        }
+    };
+    mr.start(500);
+}
+</script>
+</body>
+</html>
