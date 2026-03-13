@@ -1,0 +1,14 @@
+{
+  "integration-test-001": {
+    "session_id": "integration-test-001",
+    "started_at": "",
+    "opening_ask": 200.0,
+    "current_offer": 150.0,
+    "last_concession": 0.0,
+    "clauses_seen": [],
+    "leverage_signals": [],
+    "red_flags": [],
+    "key_moments": [],
+    "status": "active"
+  }
+}

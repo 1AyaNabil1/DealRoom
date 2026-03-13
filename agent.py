@@ -3,10 +3,17 @@ import asyncio
 import os
 import sys
 import traceback
+import uuid
+import argparse
 from typing import AsyncGenerator
 import pyaudio
 from google import genai
 from google.genai import types
+
+# Import from other DealRoom modules
+from screen_capture import frame_generator
+from negotiation_state import NegotiationState, create_session, update_state, save_state
+from context_merger import merge_and_send, parse_gemini_response
 
 # Audio Configuration
 FORMAT = pyaudio.paInt16
@@ -14,7 +21,7 @@ CHANNELS = 1
 RATE = 16000
 CHUNK = 1024
 
-# Global stop event for the microphone stream
+# Global stop event
 stop_event = asyncio.Event()
 
 def get_live_config() -> types.LiveConnectConfig:
@@ -31,9 +38,7 @@ def get_live_config() -> types.LiveConnectConfig:
         system_instruction=types.Content(
             parts=[types.Part(text=system_instruction)]
         ),
-        generation_config=types.GenerationConfig(
-            response_modalities=["TEXT"]
-        )
+        response_modalities=["TEXT"]
     )
 
 async def stream_microphone() -> AsyncGenerator[bytes, None]:
@@ -62,11 +67,8 @@ async def stream_microphone() -> AsyncGenerator[bytes, None]:
 
     try:
         while not stop_event.is_set():
-            # Read audio data from the microphone.
-            # exception_on_overflow=False handles minor buffering delays.
             data = stream.read(CHUNK, exception_on_overflow=False)
             yield data
-            # Yield control back to the event loop.
             await asyncio.sleep(0)
     finally:
         if stream:
@@ -74,67 +76,71 @@ async def stream_microphone() -> AsyncGenerator[bytes, None]:
             stream.close()
         pa.terminate()
 
-async def stream_negotiation(audio_stream: AsyncGenerator) -> AsyncGenerator[str, None]:
+async def run_dealroom_session(session_id: str = None) -> None:
     """
-    Manages a Gemini Live API session, piping audio in and yielding text out.
+    Runs the complete DealRoom multimodal pipeline.
     """
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+    
+    state = create_session(session_id)
+    print(f"SESSION STARTED: {session_id}")
+    
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
-    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
-    config = get_live_config()
-    model_id = "gemini-flash-latest"
-
+    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+    
     try:
-        async with client.aio.live.connect(model=model_id, config=config) as session:
-            # We use a concurrent task to iterate over the audio_stream
-            # and send chunks using await session.send().
-            async def sender():
+        async with client.aio.live.connect(model="gemini-2.5-flash-native-audio-latest", config=get_live_config()) as session:
+            frame_iter = frame_generator(stop_event).__aiter__()
+            audio_iter = stream_microphone().__aiter__()
+            
+            while not stop_event.is_set():
                 try:
-                    async for chunk in audio_stream:
-                        await session.send(input={"data": chunk, "mime_type": "audio/pcm"})
+                    # Fetch next audio chunk
+                    audio_bytes = await audio_iter.__anext__()
+                    
+                    # Try to get frame with 0.1s timeout
+                    try:
+                        frame_base64 = await asyncio.wait_for(frame_iter.__anext__(), timeout=0.1)
+                    except (asyncio.TimeoutError, StopAsyncIteration):
+                        frame_base64 = None
+                    
+                    # Merge and send to Gemini
+                    response_json = await merge_and_send(session, audio_bytes, frame_base64, state)
+                    
+                    if response_json:
+                        parsed = parse_gemini_response(response_json)
+                        if parsed["type"] != "SILENT":
+                            print(f"[{parsed['type']}] {parsed['message']} ({parsed['confidence']})")
+                            
+                            # Update state lists based on response type
+                            if parsed["type"] == "RED_FLAG":
+                                state.red_flags.append(parsed["message"])
+                            else:
+                                state.key_moments.append(parsed["message"])
+                            
+                            save_state(state)
+                    
+                    # Rate limit protection
+                    await asyncio.sleep(0.5)
+                    
+                except StopAsyncIteration:
+                    break
                 except Exception as e:
-                    print(f"Audio sender error: {e}")
+                    print(f"LOOP ERROR: {e}")
+                    await asyncio.sleep(1)
 
-            sender_task = asyncio.create_task(sender())
-
-            try:
-                # Await session.receive() stream to extract response text.
-                async for message in session.receive():
-                    if message.server_content and message.server_content.model_turn:
-                        parts = message.server_content.model_turn.parts
-                        if parts:
-                            for part in parts:
-                                if part.text:
-                                    yield part.text
-            except Exception as e:
-                print(f"Session disconnected or failed: {e}")
-            finally:
-                # Cleanup the sender task.
-                sender_task.cancel()
-                try:
-                    await sender_task
-                except asyncio.CancelledError:
-                    pass
+    except KeyboardInterrupt:
+        print("\nSESSION ENDED")
     except Exception as e:
-        print(f"Gemini Live API connection error: {e}")
-
-async def run_audio_test(duration_seconds: int = 10):
-    """
-    Pipes microphone audio to Gemini and prints responses for a set duration.
-    """
-    async def process():
-        async for text in stream_negotiation(stream_microphone()):
-            print(f"GEMINI: {text}", end="", flush=True)
-
-    try:
-        print(f"Streaming negotiation for {duration_seconds} seconds...")
-        await asyncio.wait_for(process(), timeout=duration_seconds)
-    except asyncio.TimeoutError:
-        print(f"\nTime limit reached ({duration_seconds}s). Stopping...")
+        print(f"SESSION FATAL ERROR: {e}")
     finally:
         stop_event.set()
+        update_state(state, {"status": "completed"})
+        print(f"SESSION {session_id} CLOSED")
 
 async def connect_and_test() -> str:
     """
@@ -144,9 +150,9 @@ async def connect_and_test() -> str:
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
-    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
+    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
     config = get_live_config()
-    model_id = "gemini-flash-latest"
+    model_id = "gemini-2.5-flash-native-audio-latest"
     response_text = ""
 
     try:
@@ -168,11 +174,14 @@ async def connect_and_test() -> str:
     return response_text
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="DealRoom Multimodal Agent")
+    parser.add_argument("--session-id", type=str, help="Optional session ID to resume or use")
+    args = parser.parse_args()
+
     try:
-        # Running the real-time audio test
-        asyncio.run(run_audio_test(10))
+        asyncio.run(run_dealroom_session(session_id=args.session_id))
     except KeyboardInterrupt:
-        print("\nStreaming stopped.")
+        print("\nGoodbye")
         sys.exit(0)
     except Exception:
         traceback.print_exc()
