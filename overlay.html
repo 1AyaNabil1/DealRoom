@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DealRoom</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: transparent; font-family: system-ui, -apple-system, sans-serif; }
+#card {
+  position: fixed; bottom: 24px; right: 24px; width: 380px;
+  background: #0F172A; border: 1px solid #1E293B; border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 9999;
+  overflow: hidden; opacity: 1; transition: opacity 0.3s, border-color 0.3s;
+}
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid #1E293B;
+}
+.logo { font-size: 14px; font-weight: 700; }
+.logo .deal { color: white; }
+.logo .room { color: #2563EB; }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.timer { font-size: 12px; color: #64748B; }
+#end-btn {
+  font-size: 11px; padding: 5px 10px; border-radius: 6px;
+  border: none; cursor: pointer; background: #7F1D1D; color: white;
+}
+.history-panel {
+  background: #0A0F1A; max-height: 200px; overflow-y: auto;
+  padding: 0 16px; display: none;
+}
+.history-panel.open { display: block; padding: 8px 16px; }
+.history-item {
+  font-size: 11px; padding: 3px 0;
+  border-bottom: 1px solid #1E293B;
+}
+.history-item.tactic { color: #93C5FD; }
+.history-item.signal { color: #6EE7B7; }
+.history-item.red_flag { color: #FCA5A5; }
+.history-item.debrief { color: #C4B5FD; }
+.body { padding: 16px; min-height: 70px; }
+.badge {
+  display: inline-block; padding: 4px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;
+}
+.badge.tactic { background: #1D4ED8; color: white; }
+.badge.signal { background: #065F46; color: white; }
+.badge.red_flag { background: #991B1B; color: white; }
+.badge.debrief { background: #4C1D95; color: white; }
+.message { color: white; font-size: 15px; font-weight: 600; margin: 8px 0 6px 0; }
+.confidence { font-size: 11px; margin-top: 4px; }
+.confidence.high { color: #22C55E; }
+.confidence.medium { color: #F59E0B; }
+.footer {
+  display: flex; align-items: center; padding: 10px 16px;
+  border-top: 1px solid #1E293B; gap: 8px;
+}
+#mute-btn {
+  font-size: 11px; padding: 5px 10px; border-radius: 6px;
+  border: none; cursor: pointer; background: #1E293B; color: #94A3B8;
+}
+#mute-btn.muted { background: #7F1D1D; color: white; }
+#speaking-indicator { color: #64748B; font-size: 11px; letter-spacing: 2px; }
+.counter { margin-left: auto; font-size: 11px; color: #64748B; }
+#history-toggle { font-size: 11px; color: #64748B; cursor: pointer; margin-left: 8px; }
+@keyframes pulse { 0% { opacity: 0.3; } 100% { opacity: 1.0; } }
+#speaking-indicator.speaking {
+  animation: pulse 600ms ease-in-out infinite alternate; color: #22C55E;
+}
+@keyframes flashBorder {
+  0% { border-color: #2563EB; }
+  100% { border-color: #1E293B; }
+}
+.flash { animation: flashBorder 600ms ease-out forwards; }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="history-panel" id="history-panel"></div>
+  <div class="header">
+    <span class="logo"><span class="deal">DEAL</span><span class="room">ROOM</span></span>
+    <div class="header-right">
+      <span class="timer" id="timer">00:00</span>
+      <button id="end-btn" onclick="endSession()">END SESSION</button>
+    </div>
+  </div>
+  <div class="body" id="body">
+    <div id="status" style="color:#F59E0B;font-size:13px">⚠ Connecting...</div>
+  </div>
+  <div class="footer">
+    <button id="mute-btn" onclick="toggleMute()">🔊 AUDIO ON</button>
+    <span id="speaking-indicator">▪▪▪</span>
+    <span class="counter" id="counter">0 signals</span>
+    <span id="history-toggle" onclick="toggleHistory()">📋</span>
+  </div>
+</div>
+<script>
+const WS_URL = "ws://localhost:8080/stream";
+let isMuted = false;
+let signalCount = 0;
+let sessionSeconds = 0;
+let timerInterval = null;
+let currentSessionId = null;
+let messageHistory = [];
+let ws = null;
+
+function pad(n) { return String(n).padStart(2, "0"); }
+
+function startTimer() {
+  sessionSeconds = 0;
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    sessionSeconds++;
+    const m = Math.floor(sessionSeconds / 60);
+    const s = sessionSeconds % 60;
+    document.getElementById("timer").textContent = pad(m) + ":" + pad(s);
+  }, 1000);
+}
+
+function connectWebSocket() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById("status").textContent = "";
+    startTimer();
+  };
+
+  ws.onmessage = (event) => {
+    let parsed;
+    try { parsed = JSON.parse(event.data); } catch { return; }
+
+    if (parsed.type === "SESSION_INIT") {
+      currentSessionId = parsed.session_id;
+      return;
+    }
+
+    if (parsed.type === "SILENT") {
+      document.getElementById("card").style.opacity = "0.3";
+      return;
+    }
+
+    document.getElementById("card").style.opacity = "1.0";
+    updateBody(parsed);
+    flashCard();
+
+    signalCount++;
+    document.getElementById("counter").textContent = signalCount + " signals";
+
+    messageHistory.push(parsed);
+    updateHistoryPanel();
+
+    if (parsed.type === "TACTIC" || parsed.type === "RED_FLAG") {
+      speakMessage(parsed.message);
+    }
+  };
+
+  ws.onerror = () => {
+    document.getElementById("body").innerHTML =
+      '<div style="color:#F59E0B;font-size:13px">⚠ Reconnecting...</div>';
+  };
+
+  ws.onclose = () => {
+    clearInterval(timerInterval);
+    setTimeout(connectWebSocket, 3000);
+  };
+}
+
+function updateBody(parsed) {
+  const type = parsed.type.toLowerCase();
+  const confidence = (parsed.confidence || "").toLowerCase();
+  document.getElementById("body").innerHTML = `
+    <span class="badge ${type}">${parsed.type}</span>
+    <div class="message">${parsed.message || ""}</div>
+    <div class="confidence ${confidence}">
+      ${confidence === "high" ? "● HIGH CONFIDENCE" : "● MEDIUM CONFIDENCE"}
+    </div>`;
+}
+
+function flashCard() {
+  const card = document.getElementById("card");
+  card.classList.remove("flash");
+  void card.offsetWidth;
+  card.classList.add("flash");
+}
+
+function updateHistoryPanel() {
+  const panel = document.getElementById("history-panel");
+  panel.innerHTML = messageHistory.map(m =>
+    `<div class="history-item ${m.type.toLowerCase()}">[${m.type}] ${m.message}</div>`
+  ).reverse().join("");
+}
+
+function toggleHistory() {
+  document.getElementById("history-panel").classList.toggle("open");
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  const btn = document.getElementById("mute-btn");
+  if (isMuted) {
+    btn.classList.add("muted");
+    btn.textContent = "🔇 MUTED";
+  } else {
+    btn.classList.remove("muted");
+    btn.textContent = "🔊 AUDIO ON";
+  }
+}
+
+async function speakMessage(text) {
+  if (isMuted) return;
+  try {
+    const res = await fetch("http://localhost:8080/tts", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text: text})
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.playbackRate = 1.1;
+    const indicator = document.getElementById("speaking-indicator");
+    if (indicator) indicator.classList.add("speaking");
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (indicator) indicator.classList.remove("speaking");
+    };
+    await audio.play();
+  } catch (e) {}
+}
+
+async function endSession() {
+  if (ws) ws.close();
+  clearInterval(timerInterval);
+  document.getElementById("body").innerHTML =
+    '<div style="color:#94A3B8;font-size:13px">Generating debrief...</div>';
+  if (!currentSessionId) {
+    document.getElementById("body").innerHTML =
+      '<div style="color:#94A3B8;font-size:13px">No active session.</div>';
+    return;
+  }
+  try {
+    const res = await fetch("http://localhost:8080/debrief", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({session_id: currentSessionId})
+    });
+    const data = await res.json();
+    document.getElementById("body").innerHTML = `
+      <span class="badge debrief">DEBRIEF</span>
+      <div class="message" style="font-size:13px">${data.debrief_text || "Session complete."}</div>`;
+    speakMessage(data.debrief_text || "Session complete.");
+    document.getElementById("counter").textContent = "Session saved.";
+  } catch (e) {
+    document.getElementById("body").innerHTML =
+      '<div style="color:#FCA5A5;font-size:13px">Debrief unavailable.</div>';
+  }
+}
+
+connectWebSocket();
+</script>
+</body>
+</html>

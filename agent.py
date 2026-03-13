@@ -25,13 +25,18 @@ CHUNK = 1024
 stop_event = asyncio.Event()
 
 def get_live_config():
+    from google.genai import types
     return types.LiveConnectConfig(
         response_modalities=["TEXT"],
-        system_instruction="""You are DealRoom, a silent real-time negotiation 
-        intelligence agent. Respond only when you have genuine tactical value. 
-        Keep every response under 25 words. Return valid JSON only in this format:
-        {"type":"TACTIC"|"SIGNAL"|"RED_FLAG"|"SILENT","message":"text","confidence":"HIGH"|"MEDIUM","reasoning":"one sentence"}
-        If nothing useful to say return {"type":"SILENT"}"""
+        system_instruction=types.Content(
+            parts=[types.Part(text="""You are DealRoom, a silent real-time negotiation 
+intelligence agent. Respond only when you have genuine tactical value. 
+Keep every response under 25 words. Return valid JSON only in this format:
+{"type":"TACTIC","message":"text","confidence":"HIGH","reasoning":"one sentence"}
+Valid types: TACTIC, SIGNAL, RED_FLAG, DEBRIEF, SILENT
+If nothing useful to say return {"type":"SILENT"}""")],
+            role="user"
+        )
     )
 
 async def stream_microphone() -> AsyncGenerator[bytes, None]:
