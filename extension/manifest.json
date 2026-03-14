@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "DealRoom Coach",
+  "version": "1.0.0",
+  "description": "Live negotiation coaching overlay for DealRoom backend.",
+  "action": {
+    "default_popup": "overlay.html"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8080/*",
+    "http://localhost:8080/*",
+    "ws://127.0.0.1:8080/*",
+    "ws://localhost:8080/*",
+    "https://*/*",
+    "wss://*/*"
+  ]
+}

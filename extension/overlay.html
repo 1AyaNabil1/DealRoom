@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DealRoom Extension</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0B1220; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+#overlay {
+  width: 380px;
+  background: #0F172A;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: hidden;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+}
+
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+#logo-text { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
+#logo-text span { color: #6366F1; }
+
+#header-right { display: flex; align-items: center; gap: 10px; }
+
+#timer {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums;
+  background: rgba(255,255,255,0.06);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+#end-btn {
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(99,102,241,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+#status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22C55E;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+#status-text {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+#signal-count-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+}
+
+#content {
+  min-height: 100px;
+  padding: 16px;
+}
+
+#empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  gap: 8px;
+  color: rgba(255,255,255,0.2);
+}
+
+#card {
+  display: none;
+  border-radius: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+
+#card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+
+.badge-tactic { background: rgba(99,102,241,0.2); color: #818CF8; border: 1px solid rgba(99,102,241,0.3); }
+.badge-signal { background: rgba(34,197,94,0.15); color: #4ADE80; border: 1px solid rgba(34,197,94,0.25); }
+.badge-red_flag { background: rgba(239,68,68,0.15); color: #F87171; border: 1px solid rgba(239,68,68,0.25); }
+.badge-debrief { background: rgba(168,85,247,0.15); color: #C084FC; border: 1px solid rgba(168,85,247,0.25); }
+
+#confidence-pill {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+#card-message {
+  font-size: 14px;
+  color: rgba(255,255,255,0.88);
+  line-height: 1.5;
+}
+
+#card-reasoning {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+#history-section {
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+#history-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 10px 16px;
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+#history-panel {
+  display: none;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 0 16px 12px;
+}
+
+.history-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: flex;
+  gap: 10px;
+}
+
+.history-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.dot-tactic { background: #818CF8; }
+.dot-signal { background: #4ADE80; }
+.dot-red_flag { background: #F87171; }
+.dot-debrief { background: #C084FC; }
+
+.history-text { font-size: 12px; color: rgba(255,255,255,0.4); line-height: 1.4; }
+
+#footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.2);
+}
+
+#speaking-indicator {
+  display: none;
+  align-items: center;
+  gap: 3px;
+}
+
+#speaking-indicator.active { display: flex; }
+#speaking-indicator span {
+  width: 3px;
+  border-radius: 2px;
+  background: #6366F1;
+  animation: bar 0.8s ease infinite;
+}
+
+#speaking-indicator span:nth-child(1) { height: 8px; animation-delay: 0s; }
+#speaking-indicator span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
+#speaking-indicator span:nth-child(3) { height: 6px; animation-delay: 0.3s; }
+
+@keyframes bar {
+  0%,100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+#reconnecting {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(239,68,68,0.08);
+  font-size: 11px;
+  color: #F87171;
+  font-weight: 600;
+}
+
+#config {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
+}
+
+#api-base {
+  flex: 1;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #0b1220;
+  color: #dbeafe;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+#save-config {
+  border: 1px solid rgba(99,102,241,0.35);
+  background: rgba(99,102,241,0.2);
+  color: #c7d2fe;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+<div id="overlay">
+  <div id="reconnecting"><span>&#9651;</span> Reconnecting...</div>
+
+  <div id="header">
+    <div id="logo-text">DEAL<span>ROOM</span></div>
+    <div id="header-right">
+      <div id="timer">00:00</div>
+      <button id="end-btn">END SESSION</button>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <div id="status-dot"></div>
+    <span id="status-text">Listening</span>
+    <span id="signal-count-badge">0 signals</span>
+  </div>
+
+  <div id="content">
+    <div id="empty-state">
+      <div class="icon">&#127908;</div>
+      <p>Waiting for negotiation signals...</p>
+    </div>
+
+    <div id="card">
+      <div id="card-header">
+        <span id="card-badge" class="badge badge-tactic">TACTIC</span>
+        <span id="confidence-pill">HIGH</span>
+      </div>
+      <div id="card-message"></div>
+      <div id="card-reasoning"></div>
+    </div>
+  </div>
+
+  <div id="history-section">
+    <button id="history-toggle">&#9660; Signal history</button>
+    <div id="history-panel"></div>
+  </div>
+
+  <div id="footer">
+    <span style="font-size:11px;color:rgba(255,255,255,0.35);font-weight:600;">AUDIO ON</span>
+    <div id="speaking-indicator"><span></span><span></span><span></span></div>
+    <span id="footer-status" style="font-size:11px;color:rgba(255,255,255,0.25)"></span>
+  </div>
+
+  <div id="config">
+    <input id="api-base" type="text" placeholder="http://127.0.0.1:8080" />
+    <button id="save-config">Save</button>
+  </div>
+</div>
+<script src="overlay.js"></script>
+</body>
+</html>
