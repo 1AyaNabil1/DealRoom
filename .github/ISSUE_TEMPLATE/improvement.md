@@ -1,3 +1,11 @@
+---
+name: Improvement
+about: Suggest an improvement to existing DealRoom behavior
+title: "[Improvement]: "
+labels: enhancement
+assignees: ""
+---
+
 ## Summary
 A 1-2 sentence description of what needs to be improved and why.
 

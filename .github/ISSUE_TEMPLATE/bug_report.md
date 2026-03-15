@@ -1,3 +1,11 @@
+---
+name: Bug report
+about: Report a reproducible problem in DealRoom
+title: "[Bug]: "
+labels: bug
+assignees: ""
+---
+
 ## Description
 A clear, 1-2 sentence summary of the bug.
 
