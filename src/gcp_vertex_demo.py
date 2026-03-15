@@ -1,14 +1,3 @@
-"""Judge-facing Google Cloud Vertex AI endpoint call example.
-
-This file demonstrates how DealRoom can call a Vertex AI endpoint using the
-official Google Cloud PredictionServiceClient.
-
-Notes:
-- This is intentionally isolated so judges can quickly verify criterion (2):
-  a code file that demonstrates Google Cloud service/API usage.
-- Runtime credentials and endpoint IDs are expected via environment variables.
-"""
-
 from __future__ import annotations
 
 import os
