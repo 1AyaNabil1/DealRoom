@@ -2,14 +2,18 @@ import os
 import uuid
 import logging
 import json
-from datetime import datetime
-from dataclasses import dataclass, field, asdict
+import tempfile
+from datetime import datetime, timezone
+from dataclasses import dataclass, field, asdict, fields
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from src.config import get_settings
+
 logger = logging.getLogger("negotiation_state")
 
-SESSION_FILE = "session_store.json"
+
+def session_file_path() -> str:
+    """Path of the JSON session store (DEALROOM_SESSION_FILE, default session_store.json)."""
+    return get_settings().session_file
 
 @dataclass
 class NegotiationState:
@@ -33,44 +37,75 @@ def create_session(session_id: str = None) -> NegotiationState:
     
     state = NegotiationState(
         session_id=session_id,
-        started_at=datetime.utcnow().isoformat()
+        started_at=datetime.now(timezone.utc).isoformat()
     )
     save_state(state)
     return state
 
+def _read_store(path: str) -> dict:
+    """Read the session store. A missing file is an empty store.
+
+    A corrupt or unreadable file is moved aside (path + ".corrupt") rather
+    than silently overwritten, so its data can still be recovered, and the
+    store starts empty again instead of failing on every later save.
+    """
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            store = json.load(f)
+        if not isinstance(store, dict):
+            raise ValueError("session store is not a JSON object")
+        return store
+    except (ValueError, UnicodeDecodeError) as e:
+        backup = path + ".corrupt"
+        logger.error("Session store %s is corrupt (%s); moving it to %s", path, e, backup)
+        os.replace(path, backup)
+        return {}
+
+
+def _write_store(path: str, store: dict) -> None:
+    """Write atomically: a crash mid-write must not leave a truncated file."""
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".session_store.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(store, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+
 def save_state(state: NegotiationState) -> None:
     """
-    Saves the current NegotiationState to a local JSON file.
+    Saves the current NegotiationState to the local JSON session store.
+    Errors are logged, never raised: losing a save must not end a live call.
     """
+    path = session_file_path()
     try:
-        store = {}
-        if os.path.exists(SESSION_FILE):
-            with open(SESSION_FILE, "r") as f:
-                store = json.load(f)
-        
+        store = _read_store(path)
         store[state.session_id] = asdict(state)
-        
-        with open(SESSION_FILE, "w") as f:
-            json.dump(store, f, indent=2)
+        _write_store(path, store)
     except Exception as e:
-        print(f"LOCAL SAVE ERROR: {e}")
+        logger.error("Could not save session %s to %s: %s", state.session_id, path, e)
+
 
 def load_state(session_id: str) -> NegotiationState | None:
     """
-    Loads a NegotiationState from the local JSON file by session_id.
+    Loads a NegotiationState from the local JSON session store by session_id.
+    Returns None if the session is unknown or the store cannot be read.
     """
+    path = session_file_path()
     try:
-        if not os.path.exists(SESSION_FILE):
+        record = _read_store(path).get(session_id)
+        if not isinstance(record, dict):
             return None
-            
-        with open(SESSION_FILE, "r") as f:
-            store = json.load(f)
-            
-        if session_id in store:
-            return NegotiationState(**store[session_id])
-        return None
+        known = {f.name for f in fields(NegotiationState)}
+        return NegotiationState(**{k: v for k, v in record.items() if k in known})
     except Exception as e:
-        print(f"LOCAL LOAD ERROR: {e}")
+        logger.error("Could not load session %s from %s: %s", session_id, path, e)
         return None
 
 def update_state(state: NegotiationState, updates: dict) -> NegotiationState:
@@ -88,9 +123,13 @@ def state_to_prompt_context(state: NegotiationState) -> str:
     """
     Formats the negotiation state for use as prompt context.
     """
-    clauses = ", ".join(state.clauses_seen) if state.clauses_seen else "none"
-    leverage = ", ".join(state.leverage_signals) if state.leverage_signals else "none"
-    red_flags = ", ".join(state.red_flags) if state.red_flags else "none"
+    def joined(items: list) -> str:
+        # str() guards against non-string entries in a hand-edited or old store.
+        return ", ".join(str(item) for item in items) if items else "none"
+
+    clauses = joined(state.clauses_seen)
+    leverage = joined(state.leverage_signals)
+    red_flags = joined(state.red_flags)
     
     return (
         f"SESSION: {state.session_id}\n"

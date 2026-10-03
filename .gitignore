@@ -30,3 +30,7 @@ htmlcov/
 node_modules/
 .venv/
 .ruff_cache/
+
+# Runtime session data written by the server (DEALROOM_SESSION_FILE)
+session_store.json
+session_store.json.corrupt
