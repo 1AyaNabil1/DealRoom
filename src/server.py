@@ -23,11 +23,11 @@ try:
 except Exception:
     gTTS = None
 
-# Import components from the DealRoom modules
-from src.agent import get_live_config
-from src.screen_capture import frame_generator
+# Import components from the DealRoom modules.
+# The server deliberately does not import src.agent or src.screen_capture:
+# those need PyAudio (PortAudio) and PyAutoGUI (a display), which a headless
+# server or container does not have.
 from src.negotiation_state import create_session, save_state, update_state, load_state, state_to_prompt_context
-from src.context_merger import merge_and_send, parse_gemini_response
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
