@@ -3,15 +3,15 @@ import os
 import uuid
 import logging
 import asyncio
-import json
 import io
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from pathlib import Path
+from typing import Annotated
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import uvicorn
-from google import genai
 
 try:
     from google.cloud import texttospeech
@@ -27,31 +27,62 @@ except Exception:
 # The server deliberately does not import src.agent or src.screen_capture:
 # those need PyAudio (PortAudio) and PyAutoGUI (a display), which a headless
 # server or container does not have.
-from src.negotiation_state import create_session, save_state, update_state, load_state, state_to_prompt_context
+from src.config import get_settings
+from src.context_merger import parse_gemini_response
+from src.llm import LLMError, TextModel, gemini_model, generate_text
+from src.negotiation_state import (
+    NegotiationState,
+    create_session,
+    load_state,
+    save_state,
+    state_to_prompt_context,
+    update_state,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("dealroom_server")
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+VERSION = "1.0.0"
+DEBRIEF_FALLBACK = "Session complete. Review your notes for follow-up actions."
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
     """
-    print("DEALROOM SERVER STARTED")
+    settings = get_settings()
+    if settings.llm_configured:
+        logger.info("DEALROOM SERVER STARTED (model: %s)", settings.model)
+    else:
+        logger.warning("DEALROOM SERVER STARTED without GOOGLE_API_KEY: live coaching is disabled "
+                       "and debriefs use a fixed fallback text")
     yield
-    print("DEALROOM SERVER STOPPED")
+    logger.info("DEALROOM SERVER STOPPED")
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS configuration
+# CORS configuration. No cookies or auth headers are used, so credentials
+# stay disabled; restrict origins with DEALROOM_CORS_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=list(get_settings().cors_origins),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_llm() -> TextModel | None:
+    """FastAPI dependency: the configured text model, or None without an API key."""
+    settings = get_settings()
+    if not settings.google_api_key:
+        return None
+    return gemini_model(settings.google_api_key, settings.model, settings.llm_timeout_s)
+
+
+LLM = Annotated[TextModel | None, Depends(get_llm)]
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -83,25 +114,24 @@ async def read_root():
 
 @app.get("/overlay", response_class=HTMLResponse)
 async def serve_overlay():
-    import os
-    overlay_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "overlay.html")
-    with open(overlay_path, "r") as f:
-        return f.read()
+    return FileResponse(STATIC_DIR / "overlay.html", media_type="text/html")
 
 @app.get("/test_mic", response_class=HTMLResponse)
 async def serve_test():
-    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "test_mic.html")) as f:
-        return f.read()
+    return FileResponse(STATIC_DIR / "test_mic.html", media_type="text/html")
 
 @app.get("/health")
 async def health_check():
     """
-    Standard health check endpoint.
+    Standard health check endpoint. Reports the model the server actually
+    calls and whether an API key is configured (never the key itself).
     """
+    settings = get_settings()
     return JSONResponse(content={
         "status": "ok",
-        "model": "gemini-2.0-flash-live-001",
-        "version": "1.0.0"
+        "model": settings.model,
+        "llm_configured": settings.llm_configured,
+        "version": VERSION,
     })
 
 # === TTS SECTION START ===
@@ -119,39 +149,13 @@ class DebriefRequest(BaseModel):
     session_id: str
 
 
-def _gemini_generate_text(prompt: str, model: str = "gemini-2.5-flash") -> str:
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not configured")
-
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(model=model, contents=prompt)
-
-    text = getattr(response, "text", None)
-    if text:
-        return text.strip()
-
-    # Fallback for SDK response variants where text is nested in candidates/parts.
-    try:
-        candidates = getattr(response, "candidates", []) or []
-        for candidate in candidates:
-            content = getattr(candidate, "content", None)
-            parts = getattr(content, "parts", []) if content else []
-            for part in parts:
-                part_text = getattr(part, "text", None)
-                if part_text:
-                    return part_text.strip()
-    except Exception:
-        pass
-
-    raise RuntimeError("Gemini returned an empty response")
-
-
 def _google_tts_synthesize(text: str, voice_name: str) -> bytes:
     if texttospeech is None:
         raise RuntimeError("google-cloud-texttospeech is not installed")
 
-    gcp_project_id = os.environ["GCP_PROJECT_ID"]
+    gcp_project_id = os.environ.get("GCP_PROJECT_ID")
+    if not gcp_project_id:
+        raise RuntimeError("GCP_PROJECT_ID is not set; skipping Google Cloud TTS")
     logger.debug("Using Google Cloud TTS project: %s", gcp_project_id)
 
     client = texttospeech.TextToSpeechClient()
@@ -253,8 +257,59 @@ async def tts_health_check():
 
 # === TTS SECTION END ===
 
+def build_coaching_prompt(state: NegotiationState) -> str:
+    return f"""You are DealRoom, a real-time negotiation coach.
+IMPORTANT: Always respond with TACTIC, SIGNAL, or RED_FLAG. Never use SILENT.
+Always find coaching value even from silence — remind the user to anchor, listen, or prepare.
+
+Return ONLY valid JSON, no other text:
+{{"type":"TACTIC","message":"your advice in under 20 words","confidence":"HIGH","reasoning":"one sentence"}}
+
+Valid types: TACTIC, SIGNAL, RED_FLAG
+Current session context: {state_to_prompt_context(state)}"""
+
+
+def build_debrief_prompt(state: NegotiationState) -> str:
+    return f"""You are DealRoom. Generate a post-call debrief in under 60 words.
+SESSION DATA:
+{state_to_prompt_context(state)}
+KEY MOMENTS: {", ".join(map(str, state.key_moments)) or "none recorded"}
+RED FLAGS: {", ".join(map(str, state.red_flags)) or "none"}
+
+Write exactly this format:
+SUMMARY: one sentence about what happened
+CLOSED AT: final offer amount or "not determined"
+KEY LEVERAGE: what worked in our favor
+FOLLOW UP: one specific next action"""
+
+
+async def next_coaching_signal(llm: TextModel, state: NegotiationState) -> dict | None:
+    """
+    Ask the model for one coaching card. Returns a validated signal, or None
+    when the call failed or the reply was not a usable signal. Never raises
+    for model errors: a bad reply skips one card, it does not end the call.
+    """
+    settings = get_settings()
+    try:
+        raw = await generate_text(
+            llm,
+            build_coaching_prompt(state),
+            timeout_s=settings.llm_timeout_s,
+            max_attempts=settings.llm_max_attempts,
+            json_output=True,
+        )
+    except LLMError as e:
+        logger.warning("Coaching call failed, skipping this window: %s", e)
+        return None
+
+    signal = parse_gemini_response(raw)
+    if signal["type"] == "SILENT":
+        return None
+    return signal
+
+
 @app.websocket("/stream")
-async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
+async def websocket_endpoint(websocket: WebSocket, llm: LLM, session_id: str | None = None):
     await websocket.accept()
 
     if not session_id:
@@ -267,96 +322,56 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = None):
         "session_id": session_id
     })
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
+    if llm is None:
         await websocket.send_json({"type": "ERROR", "message": "GOOGLE_API_KEY is not configured"})
         await websocket.close()
         return
 
+    chunks_per_analysis = get_settings().chunks_per_analysis
     state = create_session(session_id)
-    audio_chunks = []
+    # Audio is counted but not kept: the model is not sent the audio yet
+    # (see README), and buffering a whole call in memory would only leak.
     chunk_count = 0
+    analysed_at_chunk = 0
 
     try:
         while True:
-            # FIX 2: Handle both binary and text websocket payloads.
-            try:
-                message = await asyncio.wait_for(websocket.receive(), timeout=1.0)
-                if message.get("type") == "websocket.receive":
-                    if message.get("bytes"):
-                        audio_chunks.append(message["bytes"])
-                        chunk_count += 1
-                    elif message.get("text"):
-                        # Text message received, ignore for now
-                        pass
-            except asyncio.TimeoutError:
-                pass
-            except WebSocketDisconnect:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                logger.info(f"Session disconnected: {session_id}")
                 break
-            except Exception:
-                break
+            if message.get("bytes"):
+                chunk_count += 1
+            # Text frames are ignored for now.
 
-            # Every 20 chunks (~10 seconds of audio), ask Gemini for tactical advice
-            if chunk_count > 0 and chunk_count % 20 == 0:
-                try:
-                    prompt = f"""You are DealRoom, a real-time negotiation coach.
-IMPORTANT: Always respond with TACTIC, SIGNAL, or RED_FLAG. Never use SILENT.
-Always find coaching value even from silence — remind the user to anchor, listen, or prepare.
+            # Every N chunks (~10 s of audio by default), ask for tactical advice.
+            # Counting chunks *since the last request* (rather than chunk_count % N)
+            # means a request fires once per window, not again on every idle loop.
+            if chunk_count - analysed_at_chunk < chunks_per_analysis:
+                continue
+            analysed_at_chunk = chunk_count
 
-Return ONLY valid JSON, no other text:
-{{"type":"TACTIC","message":"your advice in under 20 words","confidence":"HIGH","reasoning":"one sentence"}}
-
-Valid types: TACTIC, SIGNAL, RED_FLAG
-Current session context: {state_to_prompt_context(state)}"""
-
-                    text = await asyncio.to_thread(
-                        _gemini_generate_text,
-                        prompt,
-                        "gemini-2.5-flash",
-                    )
-                    # Strip markdown if present
-                    if text.startswith("```"):
-                        text = text.split("```")[1]
-                        if text.startswith("json"):
-                            text = text[4:]
-                    text = text.strip()
-
-                    try:
-                        parsed = json.loads(text)
-                    except json.JSONDecodeError:
-                        parsed = {
-                            "type": "SIGNAL",
-                            "message": text[:100],
-                            "confidence": "MEDIUM",
-                            "reasoning": "raw response"
-                        }
-
-                    if parsed.get("type") != "SILENT":
-                        # Update state based on response type
-                        if parsed.get("type") == "RED_FLAG":
-                            state.red_flags.append(parsed.get("message", ""))
-                        else:
-                            state.key_moments.append(parsed.get("message", ""))
-                        save_state(state)
-                        logger.info(f"WS state before send: {websocket.client_state}")
-                        logger.info(f"Sending to overlay: {parsed}")
-                        await websocket.send_json(parsed)
-
-                except Exception as e:
-                    logger.error(f"Gemini error: {e}")
+            signal = await next_coaching_signal(llm, state)
+            if signal is None:
+                continue
+            if signal["type"] == "RED_FLAG":
+                state.red_flags.append(signal["message"])
+            else:
+                state.key_moments.append(signal["message"])
+            save_state(state)
+            await websocket.send_json(signal)
 
     except WebSocketDisconnect:
         logger.info(f"Session disconnected: {session_id}")
-    except Exception as e:
-        logger.error(f"Session error: {e}")
+    except Exception:
+        logger.exception(f"Session error: {session_id}")
     finally:
         update_state(state, {"status": "completed"})
         logger.info(f"Session closed: {session_id}")
 
 
 @app.post("/debrief")
-async def debrief(request: DebriefRequest):
-    # FIX 1: Add /debrief endpoint for post-call summary generation.
+async def debrief(request: DebriefRequest, llm: LLM):
     state = load_state(request.session_id)
     if not state:
         # Create a default debrief if no state found
@@ -365,30 +380,18 @@ async def debrief(request: DebriefRequest):
             "session_id": request.session_id
         })
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-
-    prompt = f"""You are DealRoom. Generate a post-call debrief in under 60 words.
-SESSION DATA:
-{state_to_prompt_context(state)}
-KEY MOMENTS: {", ".join(state.key_moments) or "none recorded"}
-RED FLAGS: {", ".join(state.red_flags) or "none"}
-
-Write exactly this format:
-SUMMARY: one sentence about what happened
-CLOSED AT: final offer amount or "not determined"
-KEY LEVERAGE: what worked in our favor
-FOLLOW UP: one specific next action"""
-
-    try:
-        if not api_key:
-            raise RuntimeError("GOOGLE_API_KEY is not configured")
-        debrief_text = await asyncio.to_thread(
-            _gemini_generate_text,
-            prompt,
-            "gemini-2.5-flash",
-        )
-    except Exception:
-        debrief_text = "Session complete. Review your notes for follow-up actions."
+    debrief_text = DEBRIEF_FALLBACK
+    if llm is not None:
+        settings = get_settings()
+        try:
+            debrief_text = await generate_text(
+                llm,
+                build_debrief_prompt(state),
+                timeout_s=settings.llm_timeout_s,
+                max_attempts=settings.llm_max_attempts,
+            )
+        except LLMError as e:
+            logger.warning("Debrief generation failed, using fallback text: %s", e)
 
     update_state(state, {"status": "completed"})
 
