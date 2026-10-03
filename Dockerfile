@@ -1,12 +1,9 @@
 # Use the official Python slim image for a smaller footprint
 FROM python:3.11-slim
 
-# Install system dependencies for PyAudio and general build tools
-RUN apt-get update && apt-get install -y \
-    gcc \
-    portaudio19-dev \
-    libasound2-dev \
-    && rm -rf /var/lib/apt/lists/*
+# The API server needs no system packages: PyAudio/PyAutoGUI are only used by
+# the local CLI agent and live in requirements-agent.txt.
+ENV PYTHONUNBUFFERED=1
 
 # Set the working directory
 WORKDIR /app
@@ -21,7 +18,7 @@ COPY static/ ./static/
 COPY scripts/ ./scripts/
 
 # Expose the port (Cloud Run sets PORT automatically)
-ENV PORT 8080
+ENV PORT=8080
 EXPOSE 8080
 
 # Command to run the application using uvicorn

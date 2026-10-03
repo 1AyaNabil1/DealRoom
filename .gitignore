@@ -28,3 +28,5 @@ htmlcov/
 .mypy_cache/
 .pyre/
 node_modules/
+.venv/
+.ruff_cache/

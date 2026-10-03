@@ -1,0 +1,8 @@
+# Extra dependencies for the standalone CLI agent (src/agent.py), which
+# captures the local microphone and screen. Not needed by the API server.
+# PyAudio builds against PortAudio: `brew install portaudio` on macOS or
+# `apt-get install portaudio19-dev` on Debian/Ubuntu.
+-r requirements.txt
+pyaudio==0.2.14
+pyautogui>=0.9.54
+pillow>=10.0

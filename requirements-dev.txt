@@ -1,0 +1,5 @@
+# Test and lint tooling. Tests run fully offline and never call Google APIs.
+-r requirements.txt
+pytest==9.1.1
+ruff==0.16.10
+httpx>=0.28.1
