@@ -1,3 +1,4 @@
+"""Try a few Gemini model IDs with a one-line prompt (live API call, uses quota)."""
 import os
 from google import genai
 

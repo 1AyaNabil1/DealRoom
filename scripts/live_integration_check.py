@@ -1,3 +1,11 @@
+"""Manual end-to-end check against the real Gemini Live API.
+
+This is NOT part of the offline test suite: it needs GOOGLE_API_KEY and a
+machine with a display (for the screen-capture check), and it spends API
+quota. Run it from the repository root:
+
+    python -m scripts.live_integration_check
+"""
 import asyncio
 import base64
 import io
@@ -52,7 +60,7 @@ async def run_tests():
         print("  PASS")
         results.append(("SCREEN_CAPTURE", True))
     except Exception as e:
-        print(f"  FAIL")
+        print("  FAIL")
         print(f"  REASON: {e}")
         results.append(("SCREEN_CAPTURE", False))
 
@@ -75,7 +83,7 @@ async def run_tests():
         print("  PASS")
         results.append(("NEGOTIATION_STATE", True))
     except Exception as e:
-        print(f"  FAIL")
+        print("  FAIL")
         print(f"  REASON: {e}")
         results.append(("NEGOTIATION_STATE", False))
 
@@ -103,7 +111,7 @@ async def run_tests():
         print("  PASS")
         results.append(("CONTEXT_MERGER", True))
     except Exception as e:
-        print(f"  FAIL")
+        print("  FAIL")
         print(f"  REASON: {e}")
         results.append(("CONTEXT_MERGER", False))
 
@@ -115,7 +123,7 @@ async def run_tests():
         print(f"  PASS: {response[:80]}")
         results.append(("GEMINI_LIVE_CONNECTION", True))
     except Exception as e:
-        print(f"  FAIL")
+        print("  FAIL")
         print(f"  REASON: {e}")
         results.append(("GEMINI_LIVE_CONNECTION", False))
 
@@ -152,7 +160,7 @@ async def run_tests():
             results.append(("FULL_PIPELINE_MOCK", True))
             
     except Exception as e:
-        print(f"  FAIL")
+        print("  FAIL")
         print(f"  REASON: {e}")
         results.append(("FULL_PIPELINE_MOCK", False))
 
