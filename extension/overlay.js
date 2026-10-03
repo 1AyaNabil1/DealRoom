@@ -10,6 +10,7 @@ let mediaRecorder = null;
 let sessionEnded = false;
 let audioQueue = [];
 let isPlaying = false;
+let serverError = null;  // set when the server reports a configuration error
 
 let apiBase = "http://127.0.0.1:8080";
 
@@ -42,12 +43,18 @@ function toggleHistory() {
 
 function updateHistoryPanel() {
   const panel = document.getElementById("history-panel");
-  panel.innerHTML = messageHistory.slice().reverse().map((d) => `
-    <div class="history-item">
-      <div class="history-dot dot-${(d.type || "").toLowerCase()}"></div>
-      <div class="history-text">${d.message || ""}</div>
-    </div>
-  `).join("");
+  // Model output is untrusted: render it as text, never as HTML.
+  panel.replaceChildren(...messageHistory.slice().reverse().map((d) => {
+    const item = document.createElement("div");
+    item.className = "history-item";
+    const dot = document.createElement("div");
+    dot.className = "history-dot dot-" + String(d.type || "").toLowerCase();
+    const text = document.createElement("div");
+    text.className = "history-text";
+    text.textContent = d.message || "";
+    item.append(dot, text);
+    return item;
+  }));
   const btn = document.getElementById("history-toggle");
   btn.textContent = (historyOpen ? "▲" : "▼") + " Signal history (" + messageHistory.length + ")";
 }
@@ -152,7 +159,12 @@ function connectWebSocket() {
     try {
       const data = JSON.parse(event.data);
       if (data.type === "SESSION_INIT") { sessionId = data.session_id; return; }
-      if (data.type === "ERROR") { console.error(data.message); return; }
+      if (data.type === "ERROR") {
+        console.error(data.message);
+        serverError = data.message || "Server error";
+        document.getElementById("footer-status").textContent = serverError;
+        return;
+      }
       if (data.type === "SILENT") return;
       if (["TACTIC", "SIGNAL", "RED_FLAG", "DEBRIEF"].includes(data.type)) {
         signalCount++;
@@ -174,6 +186,12 @@ function connectWebSocket() {
     mediaRecorder = null;
     micStream = null;
     if (sessionEnded) return;
+    if (serverError) {
+      // Reconnecting cannot fix a server configuration problem.
+      document.getElementById("status-text").textContent = "Unavailable";
+      document.getElementById("status-dot").style.background = "#F87171";
+      return;
+    }
     document.getElementById("reconnecting").style.display = "flex";
     document.getElementById("status-text").textContent = "Disconnected";
     document.getElementById("status-dot").style.background = "#F87171";
@@ -198,6 +216,7 @@ async function saveConfig() {
   await chrome.storage.sync.set({ dealroomApiBase: value });
 
   sessionEnded = false;
+  serverError = null;
   if (ws) ws.close();
   document.getElementById("footer-status").textContent = "Backend saved.";
   connectWebSocket();
