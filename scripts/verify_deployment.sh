@@ -2,8 +2,8 @@
 # verify_deployment.sh
 set -e
 
-SERVICE_NAME="dealroom-server"
-REGION="us-central1"
+SERVICE_NAME="${SERVICE_NAME:-dealroom-server}"
+REGION="${GCP_REGION:-us-central1}"
 
 echo "Fetching service URL..."
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format 'value(status.url)')

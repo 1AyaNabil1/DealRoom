@@ -9,9 +9,33 @@ terraform {
   }
 }
 
+# Override with -var or TF_VAR_* environment variables,
+# e.g. TF_VAR_project_id=my-project terraform apply
+variable "project_id" {
+  description = "Google Cloud project to deploy into"
+  type        = string
+  default     = "dealroom-hackathon"
+}
+
+variable "region" {
+  description = "Region for Cloud Run and Firestore"
+  type        = string
+  default     = "us-central1"
+}
+
+variable "image" {
+  description = "Container image for the DealRoom server (defaults to gcr.io/<project_id>/dealroom-server)"
+  type        = string
+  default     = ""
+}
+
+locals {
+  image = var.image != "" ? var.image : "gcr.io/${var.project_id}/dealroom-server"
+}
+
 provider "google" {
-  project = "dealroom-hackathon"
-  region  = "us-central1"
+  project = var.project_id
+  region  = var.region
 }
 
 # Enable GCP APIs
@@ -43,13 +67,13 @@ resource "google_project_service" "aiplatform_api" {
 # Cloud Run Service
 resource "google_cloud_run_service" "dealroom_server" {
   name     = "dealroom-server"
-  location = "us-central1"
+  location = var.region
 
   template {
     spec {
       containers {
-        image = "gcr.io/dealroom-hackathon/dealroom-server"
-        
+        image = local.image
+
         resources {
           limits = {
             memory = "512Mi"
@@ -95,7 +119,7 @@ resource "google_cloud_run_service_iam_member" "allow_unauthenticated" {
 # Firestore Database
 resource "google_firestore_database" "database" {
   name        = "(default)"
-  location_id = "us-central1"
+  location_id = var.region
   type        = "FIRESTORE_NATIVE"
 
   depends_on = [google_project_service.firestore_api]

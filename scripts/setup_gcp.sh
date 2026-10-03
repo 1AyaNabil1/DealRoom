@@ -2,8 +2,9 @@
 # setup_gcp.sh
 set -e
 
-PROJECT_ID="dealroom-hackathon"
-REGION="us-central1"
+# Override with environment variables, e.g. GCP_PROJECT_ID=my-project ./scripts/setup_gcp.sh
+PROJECT_ID="${GCP_PROJECT_ID:-dealroom-hackathon}"
+REGION="${GCP_REGION:-us-central1}"
 
 echo "Creating GCP project: $PROJECT_ID..."
 # Note: Project IDs must be unique. This may fail if the ID is already taken.

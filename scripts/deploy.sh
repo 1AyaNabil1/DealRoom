@@ -2,9 +2,10 @@
 # deploy.sh
 set -e
 
-PROJECT_ID="dealroom-hackathon"
-REGION="us-central1"
-SERVICE_NAME="dealroom-server"
+# Override with environment variables, e.g. GCP_PROJECT_ID=my-project ./scripts/deploy.sh
+PROJECT_ID="${GCP_PROJECT_ID:-dealroom-hackathon}"
+REGION="${GCP_REGION:-us-central1}"
+SERVICE_NAME="${SERVICE_NAME:-dealroom-server}"
 IMAGE_URL="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 
 echo "Configuring gcloud for project $PROJECT_ID..."
