@@ -6,26 +6,25 @@ import traceback
 import uuid
 import argparse
 from typing import AsyncGenerator
-import pyaudio
 from google import genai
 from google.genai import types
 
 # Import from other DealRoom modules
-from src.screen_capture import frame_generator
-from src.negotiation_state import NegotiationState, create_session, update_state, save_state
+from src.config import get_settings
+from src.screen_capture import LatestFrame, frame_generator
+from src.negotiation_state import create_session, update_state, save_state
 from src.context_merger import merge_and_send, parse_gemini_response
 
-# Audio Configuration
-FORMAT = pyaudio.paInt16
+# Audio Configuration (16-bit mono PCM; PyAudio is imported lazily so this
+# module can be imported, and tested, without PortAudio installed)
 CHANNELS = 1
 RATE = 16000
 CHUNK = 1024
 
-# Global stop event
-stop_event = asyncio.Event()
+# Pause between turns (rate limit protection)
+TURN_INTERVAL_S = 0.5
 
 def get_live_config():
-    from google.genai import types
     return types.LiveConnectConfig(
         response_modalities=["TEXT"],
         system_instruction=types.Content(
@@ -39,15 +38,17 @@ If nothing useful to say return {"type":"SILENT"}""")],
         )
     )
 
-async def stream_microphone() -> AsyncGenerator[bytes, None]:
+async def stream_microphone(stop_event: asyncio.Event) -> AsyncGenerator[bytes, None]:
     """
     Opens a PyAudio stream and yields CHUNK-sized byte buffers continuously.
     """
+    import pyaudio
+
     pa = pyaudio.PyAudio()
     stream = None
     try:
         stream = pa.open(
-            format=FORMAT,
+            format=pyaudio.paInt16,
             channels=CHANNELS,
             rate=RATE,
             input=True,
@@ -81,33 +82,34 @@ async def run_dealroom_session(session_id: str = None) -> None:
     if session_id is None:
         session_id = str(uuid.uuid4())
     
-    state = create_session(session_id)
-    print(f"SESSION STARTED: {session_id}")
-    
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
+    settings = get_settings()
+    if not settings.google_api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set.")
 
-    client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
+    state = create_session(session_id)
+    print(f"SESSION STARTED: {session_id}")
+
+    client = genai.Client(api_key=settings.google_api_key, http_options={'api_version': 'v1alpha'})
+    stop_event = asyncio.Event()
+    frame_task = None
     
     try:
-        async with client.aio.live.connect(model="gemini-2.0-flash-live-001", config=get_live_config()) as session:
-            frame_iter = frame_generator(stop_event).__aiter__()
-            audio_iter = stream_microphone().__aiter__()
+        async with client.aio.live.connect(model=settings.live_model, config=get_live_config()) as session:
+            # Screenshots are captured by a background task; each turn sends
+            # the newest frame not yet sent, without waiting for one.
+            latest_frame = LatestFrame()
+            frame_task = asyncio.create_task(latest_frame.fill_from(frame_generator(stop_event)))
+            audio_iter = stream_microphone(stop_event).__aiter__()
             
             while not stop_event.is_set():
                 try:
                     # Fetch next audio chunk
                     audio_bytes = await audio_iter.__anext__()
-                    
-                    # Try to get frame with 0.1s timeout
-                    try:
-                        frame_base64 = await asyncio.wait_for(frame_iter.__anext__(), timeout=0.1)
-                    except (asyncio.TimeoutError, StopAsyncIteration):
-                        frame_base64 = None
+                    frame_base64 = latest_frame.take()
                     
                     # Merge and send to Gemini
-                    response_json = await merge_and_send(session, audio_bytes, frame_base64, state)
+                    response_json = await merge_and_send(session, audio_bytes, frame_base64, state,
+                                                         timeout_s=settings.llm_timeout_s)
                     
                     if response_json:
                         parsed = parse_gemini_response(response_json)
@@ -123,7 +125,7 @@ async def run_dealroom_session(session_id: str = None) -> None:
                             save_state(state)
                     
                     # Rate limit protection
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(TURN_INTERVAL_S)
                     
                 except StopAsyncIteration:
                     break
@@ -137,6 +139,8 @@ async def run_dealroom_session(session_id: str = None) -> None:
         print(f"SESSION FATAL ERROR: {e}")
     finally:
         stop_event.set()
+        if frame_task is not None:
+            frame_task.cancel()
         update_state(state, {"status": "completed"})
         print(f"SESSION {session_id} CLOSED")
 
@@ -145,9 +149,12 @@ async def connect_and_test() -> str:
     if not api_key:
         raise ValueError("GOOGLE_API_KEY not set")
     client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
-    model = "gemini-2.0-flash-live-001"
+    model = get_settings().live_model
     async with client.aio.live.connect(model=model, config=get_live_config()) as session:
-        await session.send(input="Hello, confirm you are connected.", end_of_turn=True)
+        await session.send_client_content(
+            turns=types.Content(role="user", parts=[types.Part(text="Hello, confirm you are connected.")]),
+            turn_complete=True,
+        )
         async for message in session.receive():
             if getattr(message, "text", None):
                 return message.text

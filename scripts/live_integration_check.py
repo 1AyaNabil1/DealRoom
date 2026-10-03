@@ -21,6 +21,7 @@ try:
     from src.negotiation_state import create_session, load_state, update_state, NegotiationState
     from src.context_merger import build_audio_part, build_vision_part, parse_gemini_response, merge_and_send
     from src.agent import connect_and_test, get_live_config
+    from src.config import get_settings
     from google import genai
 except ImportError as e:
     print(f"IMPORT ERROR: {e}")
@@ -91,12 +92,11 @@ async def run_tests():
     print("RUNNING TEST 3: CONTEXT_MERGER...")
     try:
         audio_input = build_audio_part(b"test")
-        assert hasattr(audio_input, 'audio'), "audio_input should have audio"
-        assert audio_input.audio.mime_type == "audio/pcm"
+        assert audio_input.mime_type.startswith("audio/pcm"), "audio part should be PCM"
         
-        vision_input = build_vision_part("abc")
-        assert hasattr(vision_input, 'video'), "vision_input should have video"
-        assert vision_input.video.mime_type == "image/jpeg"
+        vision_input = build_vision_part(base64.b64encode(b"jpeg").decode())
+        assert vision_input.mime_type == "image/jpeg"
+        assert vision_input.data == b"jpeg"
         
         assert build_vision_part(None) is None
         assert build_vision_part("") is None
@@ -144,9 +144,9 @@ async def run_tests():
         if not api_key:
             raise ValueError("GOOGLE_API_KEY not set")
             
-        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1beta'})
+        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         
-        async with client.aio.live.connect(model="gemini-2.0-flash-exp", config=get_live_config()) as session:
+        async with client.aio.live.connect(model=get_settings().live_model, config=get_live_config()) as session:
             # 4. Merge and Send
             result = await merge_and_send(session, b'\x00\x01' * 512, frame_base64, mock_state)
             assert result is not None, "Pipeline returned None"

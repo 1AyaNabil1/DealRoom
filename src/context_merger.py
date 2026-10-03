@@ -1,4 +1,5 @@
 # context_merger.py
+import asyncio
 import json
 import logging
 from typing import Literal
@@ -16,22 +17,24 @@ MAX_MESSAGE_CHARS = 300
 MAX_REASONING_CHARS = 500
 # Model replies are short; never scan an unbounded string for JSON.
 MAX_RESPONSE_CHARS = 20_000
+# The CLI agent records 16 kHz, 16-bit mono PCM (see src/agent.py).
+AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
 
-def build_audio_part(audio_bytes: bytes) -> types.LiveClientRealtimeInput:
+def build_audio_part(audio_bytes: bytes) -> types.Blob:
     """
-    Returns the audio LiveClientRealtimeInput for Gemini Live API.
+    Returns the raw PCM audio chunk as a Blob for send_realtime_input(audio=...).
     """
-    audio_blob = types.Blob(mime_type="audio/pcm", data=audio_bytes)
-    return types.LiveClientRealtimeInput(audio=audio_blob)
+    return types.Blob(mime_type=AUDIO_MIME_TYPE, data=audio_bytes)
 
-def build_vision_part(base64_frame: str | None) -> types.LiveClientRealtimeInput | None:
+def build_vision_part(base64_frame: str | None) -> types.Blob | None:
     """
-    Returns the vision LiveClientRealtimeInput if a frame is provided.
+    Returns the base64 JPEG frame as a Blob for send_realtime_input(video=...),
+    or None if there is no frame.
     """
     if not base64_frame:
         return None
-    vision_blob = types.Blob(mime_type="image/jpeg", data=base64_frame)
-    return types.LiveClientRealtimeInput(video=vision_blob)
+    # The SDK decodes a base64 string into bytes for Blob.data.
+    return types.Blob(mime_type="image/jpeg", data=base64_frame)
 
 def build_context_message(state: NegotiationState) -> str:
     """
@@ -45,47 +48,56 @@ def build_context_message(state: NegotiationState) -> str:
         f"tactical value. Return valid JSON only, no other text."
     )
 
-async def merge_and_send(session, audio_bytes: bytes, frame_base64: str | None, state: NegotiationState) -> str | None:
+async def _collect_turn_text(session) -> str:
+    """Reads the model's whole turn: text can arrive split over several messages."""
+    response_text = ""
+    async for message in session.receive():
+        text = getattr(message, "text", None)
+        if text:
+            response_text += text
+        server_content = getattr(message, "server_content", None)
+        if server_content is not None and getattr(server_content, "turn_complete", False):
+            break
+    return response_text
+
+async def merge_and_send(session, audio_bytes: bytes, frame_base64: str | None, state: NegotiationState,
+                         timeout_s: float = 15.0) -> str | None:
     """
-    Sends multimodal context to Gemini and returns the processed response text.
+    Sends one audio chunk, an optional screen frame and the negotiation context
+    to a Gemini Live session and returns the model's raw reply text.
+
+    Returns None on any error or timeout, so one bad turn never ends the call.
     """
     try:
-        # 1. Send Audio
-        await session.send(input=build_audio_part(audio_bytes))
-        
-        # 2. Send Vision (if available)
+        # Media must go through send_realtime_input(). The deprecated
+        # session.send(input=LiveClientRealtimeInput(audio=..., video=...))
+        # only forwards the media_chunks field, so the audio and screen frames
+        # were silently dropped and the model only ever saw the text context.
+        await session.send_realtime_input(audio=build_audio_part(audio_bytes))
+
         vision_part = build_vision_part(frame_base64)
-        if vision_part:
-            await session.send(input=vision_part)
-            
-        # 3. Send Context Text with end_of_turn=True
-        context_text = build_context_message(state)
-        await session.send(input=context_text, end_of_turn=True)
-        
-        # 4. Receive Response
-        response_text = ""
-        async for message in session.receive():
-            # Try direct text first
-            if getattr(message, "text", None):
-                response_text += message.text
-                break
-            # Try server_content path
-            if getattr(message, "server_content", None):
-                model_turn = getattr(message.server_content, "model_turn", None)
-                if model_turn:
-                    for part in getattr(model_turn, "parts", []):
-                        if getattr(part, "text", None):
-                            response_text += part.text
-                # Stop reading when turn is complete
-                if getattr(message.server_content, "turn_complete", False):
-                    break
+        if vision_part is not None:
+            await session.send_realtime_input(video=vision_part)
+
+        await session.send_client_content(
+            turns=types.Content(role="user", parts=[types.Part(text=build_context_message(state))]),
+            turn_complete=True,
+        )
+
+        # Previously the first text fragment ended the read, which truncated
+        # multi-part JSON replies and left the rest of the turn to be misread
+        # as the answer to the next one.
+        response_text = await asyncio.wait_for(_collect_turn_text(session), timeout=timeout_s)
 
         # Validation happens in parse_gemini_response(); non-JSON replies are
         # dropped there rather than shown to the user as a SIGNAL.
         return response_text or None
-            
+
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning("No complete reply from the Live API within %.0fs", timeout_s)
+        return None
     except Exception as e:
-        print(f"MERGE ERROR: {e}")
+        logger.error("MERGE ERROR: %s", e)
         return None
 
 class CoachingSignal(BaseModel):

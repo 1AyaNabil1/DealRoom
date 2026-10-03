@@ -4,12 +4,8 @@ import base64
 import io
 import logging
 import sys
-from typing import AsyncGenerator
-import pyautogui
-from PIL import Image
+from typing import AsyncGenerator, AsyncIterator
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("screen_capture")
 
 def capture_frame() -> str | None:
@@ -17,6 +13,11 @@ def capture_frame() -> str | None:
     Takes a screenshot, resizes it to 1280x720, and encodes it as a base64 JPEG string.
     """
     try:
+        # Imported lazily: PyAutoGUI needs a display at import time on Linux,
+        # and this module must stay importable on headless machines.
+        import pyautogui
+        from PIL import Image
+
         # Capture screenshot
         screenshot = pyautogui.screenshot()
         
@@ -33,18 +34,17 @@ def capture_frame() -> str | None:
         
         return base64_str
     except Exception as e:
-        print(f"CAPTURE ERROR: {e}")
+        logger.error("CAPTURE ERROR: %s", e)
         return None
 
-async def frame_generator(stop_event: asyncio.Event) -> AsyncGenerator[str, None]:
+async def frame_generator(stop_event: asyncio.Event, interval_s: float = 2.0,
+                          capture=capture_frame) -> AsyncGenerator[str, None]:
     """
-    Asynchronously yields base64-encoded screenshots every 2 seconds.
+    Asynchronously yields base64-encoded screenshots every interval_s seconds.
     """
-    loop = asyncio.get_event_loop()
-    
     while not stop_event.is_set():
         # Execute synchronous pyautogui call in a separate thread to avoid blocking
-        frame = await loop.run_in_executor(None, capture_frame)
+        frame = await asyncio.to_thread(capture)
         
         if not stop_event.is_set() and frame is not None:
             yield frame
@@ -53,7 +53,32 @@ async def frame_generator(stop_event: asyncio.Event) -> AsyncGenerator[str, None
         if stop_event.is_set():
             break
             
-        await asyncio.sleep(2)
+        await asyncio.sleep(interval_s)
+
+
+class LatestFrame:
+    """
+    Holds the most recent screen frame, filled by a background task.
+
+    The agent loop must never wait on, or cancel, the frame generator itself:
+    cancelling an async generator's __anext__ (which asyncio.wait_for does on
+    timeout) finalises the generator, so every later frame is lost.
+    """
+
+    def __init__(self) -> None:
+        self._frame: str | None = None
+
+    def put(self, frame: str) -> None:
+        self._frame = frame
+
+    def take(self) -> str | None:
+        """Returns the newest frame not yet taken, or None. Never blocks."""
+        frame, self._frame = self._frame, None
+        return frame
+
+    async def fill_from(self, frames: AsyncIterator[str]) -> None:
+        async for frame in frames:
+            self.put(frame)
 
 if __name__ == "__main__":
     async def main():
