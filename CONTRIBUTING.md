@@ -26,14 +26,14 @@ Please follow these steps to have your contribution considered by the maintainer
 1. Fork the repo and create your branch from `main`.
 2. If you've added code that should be tested, add tests.
 3. If you've changed APIs, update the documentation.
-4. Ensure the test suite passes (if applicable).
-5. Ensure your code is formatted and lints correctly.
+4. Ensure the test suite passes (`pytest`).
+5. Ensure your code lints correctly (`ruff check .`).
 6. Issue that pull request!
 
 ## Setting Up Your Development Environment
 
 ### Prerequisites
-- Python 3.9+
+- Python 3.11+
 - A Google Gemini API Key
 
 ### Installation Steps
@@ -50,22 +50,30 @@ Please follow these steps to have your contribution considered by the maintainer
    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
    ```
 
-3. Install the required dependencies:
+3. Install the server and development dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
    ```
+   (`requirements-agent.txt` adds PyAudio/PyAutoGUI for the CLI agent; PyAudio needs PortAudio installed.)
 
 4. Set up your environment variables:
-   Create a `.env` file in the root directory and add your Google Gemini API key:
+   Copy the example file and add your Google Gemini API key:
    ```bash
-   echo 'GOOGLE_API_KEY=your_key' > .env
+   cp .env.example .env
    ```
 
 5. Run the application:
    ```bash
-   uvicorn server:app --host 0.0.0.0 --port 8080
+   uvicorn src.server:app --host 127.0.0.1 --port 8080 --env-file .env
    ```
    Open: `http://localhost:8080/overlay`
+
+6. Run the linter and the offline test suite (the same checks CI runs):
+   ```bash
+   ruff check .
+   pytest
+   ```
+   Tests must not call real Google APIs; use the fakes in `tests/fakes.py`.
 
 ## Styleguides
 
